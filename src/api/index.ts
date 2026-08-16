@@ -1,0 +1,121 @@
+/**
+ * API 层统一出口（Barrel）。
+ * 业务层只需 import { marketData } from '@/api' 即可。
+ */
+export type {
+  Market,
+  Exchange,
+  AssetType,
+  Symbol,
+  KlinePeriod,
+  AdjustMode,
+  Candle,
+  Quote,
+  OrderBook,
+  Instrument,
+  Valuation,
+  IncomeStatement,
+  BalanceSheet,
+  CashFlowStatement,
+  FinancialIndicator,
+  IndicatorCategory,
+  ReportPeriod,
+  IndexTag,
+  IndexInfo,
+  IndexConstituent,
+  AdjustmentFactor,
+  FundType,
+  FundProfile,
+  FundHolding,
+  FundNav,
+  FundReturn,
+  FundHolder,
+  LimitUpStock,
+  HotStock,
+  AnomalyStock,
+  DragonTigerStock,
+  DragonTigerList,
+  DragonTigerHotMoney,
+  TradingDay,
+  KlineParams,
+  SearchParams,
+  HistoricalFinancialParams,
+  IndicatorsParams,
+  ListResult,
+  Pagination,
+  QuotesParams,
+  UsQuotesParams,
+  HkQuotesParams,
+  IndexKlineParams,
+  SearchResult,
+  StockInfo,
+  FinancialReport,
+  ProfitForecast,
+  NewsItem,
+  AnnouncementItem,
+  BlockTradeItem,
+  MainForceItem,
+  HotItem,
+  HolderItem,
+  LargestHolderItem,
+  HolderChangeItem,
+  TopListItem,
+  LimitUpDownItem,
+  DragonTigerItem,
+  TimeSharingItem,
+  UsTimeSharingItem,
+  TimeSharingParams,
+  UsKlineParams,
+  HkKlineParams,
+  AHPremiumItem,
+  StockNewStockItem,
+  StockAHItem,
+  TradingCalendarItem,
+  FundsFlowingItem,
+  HotIndustryItem,
+  TodaySurgeItem,
+  IndustryBoardItem,
+  IndustryFundsFlowingItem,
+  LimitUpPoolItem,
+  FundListItem,
+  FundInfo,
+  FundHistoryItem,
+  FundRankItem,
+  FundValuation,
+  FundBonusItem,
+  FundAssetItem,
+  FundManagerItem,
+  FundNewFundItem,
+  FundReitsItem,
+  FundTradeItem,
+  FundStockItem,
+  FundFinancingItem,
+  FundPerformanceItem,
+  FundReferenceItem,
+  FundThemeItem,
+  FundShareItem,
+  FundTopicItem,
+  FundCategory,
+} from './types';
+export * from './config';
+import { MarketDataClient, marketData, getDefaultClient } from './MarketDataClient';
+export { MarketDataClient, marketData, getDefaultClient };
+/** 兼容：回灌用户偏好（主源选择 + Key） */
+export function applyUserPreferences(key?: string): Promise<void> {
+  return marketData.applyUserPreferences(key);
+}
+export type { MarketDataSource } from './MarketDataSource';
+export { DataSourceError } from './MarketDataSource';
+export { HithsaApiSource } from './sources/HithsaApiSource';
+export { StockApiSource } from './sources/StockApiSource';
+export { FundApiSource } from './sources/FundApiSource';
+export { StockSdkSource } from './sources/StockSdkSource';
+export { HithsaHttpClient } from './sources/HithsaHttpClient';
+export {
+  register,
+  unregister,
+  listAvailableSources,
+  hasSource,
+  createSource,
+} from './DataSourceRegistry';
+export type { DataSourceFactory } from './DataSourceRegistry';

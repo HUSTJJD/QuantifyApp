@@ -1,5 +1,13 @@
 {
   "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "customConditions": ["react-native-strict-api"],
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]
 }

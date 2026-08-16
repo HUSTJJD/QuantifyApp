@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "hithink-finance": {
+      "source": "HiThink-Tech/Financial-API",
+      "sourceType": "github",
+      "skillPath": "skills/hithink-finance/SKILL.md",
+      "computedHash": "6bc512351a76d145be06584a4929071a992ff709770525bab0a8a9b9a785811a"
+    }
+  }
+}
