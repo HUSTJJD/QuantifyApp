@@ -14,7 +14,10 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
-target 'AwesomeProject' do
+# WatermelonDB 依赖：NPM vendored 的 @nozbe/simdjson（不能用 CocoaPods 版本）
+pod 'simdjson', path: '../node_modules/@nozbe/simdjson', modular_headers: true
+
+target 'QuantifyApp' do
   config = use_native_modules!
 
   use_react_native!(

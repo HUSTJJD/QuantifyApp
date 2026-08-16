@@ -1,0 +1,4 @@
+[submodule "native-kline-view"]
+	path = native-kline-view
+	url = https://github.com/HUSTJJD/native-kline-view.git
+	branch = main

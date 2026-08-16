@@ -1,0 +1,44 @@
+{
+  "mcpServers": {
+    "stock-api": {
+      "command": "npx",
+      "args": ["-y", "stock-api", "mcp"]
+    },
+    "stock-sdk": {
+      "command": "npx",
+      "args": ["-y", "stock-sdk", "mcp"],
+      "env": {
+        "STOCK_SDK_MCP_TOOLS": "full",     // 工具集范围（已有）
+        "STOCK_SDK_MCP_PROMPTS": "full"    // 技能集范围（缺省 core）
+      }
+    },
+    "fuyao-a-share": {
+      "type": "http",
+      "url": "https://fuyao.aicubes.cn/mcp/a-share",
+      "headers": {
+        "X-api-key": "sk-fuyao-aFpGQs6bfti--ig3qw5yDQKU3a8PJYsG"
+      }
+    },
+    "fuyao-a-share-index": {
+      "type": "http",
+      "url": "https://fuyao.aicubes.cn/mcp/a-share-index",
+      "headers": {
+        "X-api-key": "sk-fuyao-aFpGQs6bfti--ig3qw5yDQKU3a8PJYsG"
+      }
+    },
+    "fuyao-fund": {
+      "type": "http",
+      "url": "https://fuyao.aicubes.cn/mcp/fund",
+      "headers": {
+        "X-api-key": "sk-fuyao-aFpGQs6bfti--ig3qw5yDQKU3a8PJYsG"
+      }
+    },
+    "fuyao-meta": {
+      "type": "http",
+      "url": "https://fuyao.aicubes.cn/mcp/meta",
+      "headers": {
+        "X-api-key": "sk-fuyao-aFpGQs6bfti--ig3qw5yDQKU3a8PJYsG"
+      }
+    }
+  }
+}

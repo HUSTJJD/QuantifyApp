@@ -1,6 +1,16 @@
 apply plugin: "com.android.application"
-apply plugin: "org.jetbrains.kotlin.android"
+// AGP 9 下 builtInKotlin=true，kotlin 扩展与编译由 AGP 统一接管，
+// 无需手动 apply "kotlin-android"（否则重复注册 kotlin 扩展报错）。
+// MainApplication.kt 由 AGP 自动编译。
 apply plugin: "com.facebook.react"
+
+/**
+ * 图标字体说明（Android）：
+ * react-native-vector-icons 的字体已直接放在 android/app/src/main/assets/fonts/
+ * （见 MaterialCommunityIcons.ttf），随 APK 打包，无需再依赖 fonts.gradle
+ * （其内部使用旧 Variant API，在 AGP 9 下可能失效/报错）。
+ * 如需新增其它图标集字体，把对应 .ttf 复制进 assets/fonts 即可。
+ */
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -77,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.awesomeproject"
+    namespace "com.quantifyapp"
     defaultConfig {
-        applicationId "com.awesomeproject"
+        applicationId "com.quantifyapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -105,11 +115,16 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
+
+    packagingOptions {
+        pickFirst '**/libc++_shared.so' // ⬅️ This (if missing)
+    }
 }
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    implementation project(':watermelondb-jsi') // ⬅️ This!
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
