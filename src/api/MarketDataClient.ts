@@ -111,15 +111,16 @@ export type SourceFactory = (id: string) => MarketDataSource;
 const SUPPORT_MATRIX: Record<string, string[]> = {
   // —— 核心通用 ——
   search: ['hithsa', 'stock-sdk'],
-  getQuotes: ['hithsa', 'stock-sdk', 'stock-api'],
-  getKline: ['hithsa', 'stock-sdk', 'stock-api'],
-  getOrderBook: ['stock-sdk', 'stock-api'],
-  getIndexKline: ['stock-sdk', 'stock-api'],
-  getFinancials: ['hithsa', 'stock-api'],
+  getQuotes: ['hithsa', 'stock-sdk'],
+  getKline: ['hithsa', 'stock-sdk'],
+  getOrderBook: ['stock-sdk'],
+  getIndexKline: ['stock-sdk'],
+  getFinancials: ['hithsa'],
   getProfitForecast: ['hithsa'],
   // —— 港股 / 美股行情 ——
-  getUsQuotes: ['stock-api'],
-  getHkQuotes: ['stock-api'],
+  // 注：npm `stock-api` 无法在 RN 运行；港股/美股行情由 stock-sdk 兜底（见 stock-sdk 源）。
+  getUsQuotes: ['stock-sdk'],
+  getHkQuotes: ['stock-sdk'],
   // —— fund-api 基金全系 ——
   getFundList: ['fund-api'],
   getFundInfo: ['fund-api'],
@@ -174,10 +175,10 @@ const SUPPORT_MATRIX: Record<string, string[]> = {
   getStockNewStock: ['stock-sdk'],
   getStockAH: ['stock-sdk'],
   // —— 交易日历 / 资金流 ——
-  getStockTradingCalendar: ['stock-api'],
-  getStockFundsFlowing: ['stock-api', 'stock-sdk'],
-  getStockHotIndustry: ['stock-api'],
-  getStockTodaySurge: ['stock-api'],
+  getStockTradingCalendar: ['hithsa'],
+  getStockFundsFlowing: ['stock-sdk'],
+  getStockHotIndustry: ['hithsa'],
+  getStockTodaySurge: ['stock-sdk'],
   getStockIndustryBoard: ['stock-sdk'],
   getStockIndustryFundsFlowing: ['stock-sdk'],
   getStockLimitUpPool: ['stock-sdk'],
@@ -227,10 +228,7 @@ export class MarketDataClient {
 
     let order = fallbacks.filter((id) => (SUPPORT_MATRIX[method as string] ?? []).includes(id));
 
-    // 盘口：sdk 真实优先，api 仅兜底
-    if (method === 'getOrderBook' && order.includes('stock-sdk') && order.includes('stock-api')) {
-      order = ['stock-sdk', 'stock-api'];
-    }
+    // 盘口：stock-sdk 提供真实五档，作为唯一源
     return order;
   }
 

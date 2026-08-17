@@ -107,7 +107,6 @@ export function applyUserPreferences(key?: string): Promise<void> {
 export type { MarketDataSource } from './MarketDataSource';
 export { DataSourceError } from './MarketDataSource';
 export { HithsaApiSource } from './sources/HithsaApiSource';
-export { StockApiSource } from './sources/StockApiSource';
 export { FundApiSource } from './sources/FundApiSource';
 export { StockSdkSource } from './sources/StockSdkSource';
 export { HithsaHttpClient } from './sources/HithsaHttpClient';

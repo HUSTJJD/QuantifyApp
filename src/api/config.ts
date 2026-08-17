@@ -31,13 +31,14 @@ export interface ApiConfig {
 
 export const defaultApiConfig: ApiConfig = {
   primary: 'hithsa',
-  // 回退链顺序：同花顺(主) -> stock-sdk -> stock-api -> fund-api
-  // 优先级按上游真实能力：同花顺 > stock-sdk > stock-api（用户明确要求）。
-  //  - stock-sdk：补齐同花顺缺失的真实五档盘口、日/周/月 K、特色数据；
-  //  - stock-api：补齐港股/美股行情、分钟级 K、月K、板块资金流等；
+  // 回退链顺序：同花顺(主) -> stock-sdk -> fund-api
+  // 优先级按上游真实能力：同花顺 > stock-sdk > fund-api。
+  //  - stock-sdk：补齐同花顺缺失的真实五档盘口、日/周/月 K、港股/美股行情、特色数据；
   //  - fund-api：专属基金全系能力兜底。
+  // 注：npm 包 `stock-api` 是 Node/Browser 直连外网（腾讯/新浪/东方财富）的实时抓取库，
+  //     依赖 Node 全局 fetch/Headers 且无 RN 适配，无法在 React Native 中运行，故不接入。
   fallback: 'stock-sdk',
-  extraFallbacks: ['stock-api', 'fund-api'],
+  extraFallbacks: ['fund-api'],
   timeoutMs: 10_000,
 };
 

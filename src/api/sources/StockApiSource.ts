@@ -16,7 +16,6 @@
  */
 import stockApi from 'stock-api';
 import { BaseMarketDataSource } from './BaseMarketDataSource';
-import { register } from '../DataSourceRegistry';
 import type {
   Symbol as UnifiedSymbol,
   Quote,
@@ -142,6 +141,3 @@ export class StockApiSource extends BaseMarketDataSource {
     });
   }
 }
-
-// 自注册：使 config 的 extraFallbacks 链中的 'stock-api' 可被 MarketDataClient 解析。
-register(SOURCE_ID, StockApiSource);
