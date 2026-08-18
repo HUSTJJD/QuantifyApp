@@ -71,6 +71,7 @@ import type {
   Valuation,
 } from '../types';
 import { register } from '../DataSourceRegistry';
+import { cleanCandles } from '../candleValidity';
 
 const SOURCE_ID = 'stock-sdk';
 
@@ -261,7 +262,7 @@ export class StockSdkSource implements MarketDataSource {
         this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
         '分钟K线失败',
       );
-      return mapMinuteKline(raw ?? []);
+      return cleanCandles(mapMinuteKline(raw ?? []));
     }
 
     const periodMap: Record<string, 'daily' | 'weekly' | 'monthly'> = {
@@ -274,15 +275,17 @@ export class StockSdkSource implements MarketDataSource {
       this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
       'K线失败',
     );
-    return (raw ?? []).map((it: any) => ({
-      datetime: it.date,
-      open: num(it.open),
-      high: num(it.high),
-      low: num(it.low),
-      close: num(it.close),
-      volume: num(it.volume),
-      amount: it.amount != null ? num(it.amount) : undefined,
-    }));
+    return cleanCandles(
+      (raw ?? []).map((it: any) => ({
+        datetime: it.date,
+        open: num(it.open),
+        high: num(it.high),
+        low: num(it.low),
+        close: num(it.close),
+        volume: num(it.volume),
+        amount: it.amount != null ? num(it.amount) : undefined,
+      })),
+    );
   }
 
   /** 复权事件：委托 SDK reference.dividendDetail（分红 / 送转明细） */
@@ -457,7 +460,7 @@ export class StockSdkSource implements MarketDataSource {
     return mapFundQuote(symbol, r);
   }
   /** 基金历史净值（复用 navHistory，SDK 一次性返回全历史，按区间本地截断） */
-  async getFundHistorical(symbol: Symbol, startMs: number, endMs: number): Promise<Candle[]> {
+  async getFundHistorical(symbol: Symbol, _startMs: number, _endMs: number): Promise<Candle[]> {
     const r: any = await this.guard(
       this.sdk.fund.navHistory(toSdkCode(symbol)),
       '基金历史失败',

@@ -49,6 +49,7 @@ import type {
 } from '../types';
 import { HithsaHttpClient } from './HithsaHttpClient';
 import { toThsCode, fromThsCode, marketOf } from '@/domain/symbol';
+import { cleanCandles } from '../candleValidity';
 import { register } from '../DataSourceRegistry';
 
 export const SOURCE_ID = 'hithsa';
@@ -210,15 +211,22 @@ export class HithsaApiSource implements MarketDataSource {
       // 空结果视为「本源拿不到该数据」，抛 3004 继续尝试备源而非静默返回空
       throw new DataSourceError('同花顺个股K线返回为空', SOURCE_ID, 3004);
     }
-    return data.map((d: any) => ({
-      datetime: toMs(d.date),
-      open: num(d.open) ?? 0,
-      high: num(d.high) ?? 0,
-      low: num(d.low) ?? 0,
-      close: num(d.close) ?? 0,
-      volume: num(d.volume) ?? 0,
-      amount: num(d.amount) ?? undefined,
-    }));
+    const candles = cleanCandles(
+      data.map((d: any) => ({
+        datetime: toMs(d.date),
+        open: num(d.open) ?? 0,
+        high: num(d.high) ?? 0,
+        low: num(d.low) ?? 0,
+        close: num(d.close) ?? 0,
+        volume: num(d.volume) ?? 0,
+        amount: num(d.amount) ?? undefined,
+      })),
+    );
+    // 全部行均无效时，视为本源无可用数据，抛 3004 交由 MarketDataClient 路由到备源
+    if (candles.length === 0) {
+      throw new DataSourceError('同花顺个股K线清洗后无有效数据', SOURCE_ID, 3004);
+    }
+    return candles;
   }
 
   async getIndexKline(params: KlineParams): Promise<Candle[]> {
@@ -239,15 +247,19 @@ export class HithsaApiSource implements MarketDataSource {
       '同花顺指数K线失败',
     );
     if (!Array.isArray(data)) return [];
-    return data.map((d: any) => ({
-      datetime: toMs(d.date),
-      open: num(d.open) ?? 0,
-      high: num(d.high) ?? 0,
-      low: num(d.low) ?? 0,
-      close: num(d.close) ?? 0,
-      volume: num(d.volume) ?? 0,
-      amount: num(d.amount) ?? undefined,
-    }));
+    const candles = cleanCandles(
+      data.map((d: any) => ({
+        datetime: toMs(d.date),
+        open: num(d.open) ?? 0,
+        high: num(d.high) ?? 0,
+        low: num(d.low) ?? 0,
+        close: num(d.close) ?? 0,
+        volume: num(d.volume) ?? 0,
+        amount: num(d.amount) ?? undefined,
+      })),
+    );
+    // 指数 K 线为空不抛错（指数历史可能短），直接返回已清洗结果
+    return candles;
   }
 
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
@@ -538,15 +550,17 @@ export class HithsaApiSource implements MarketDataSource {
       '同花顺基金历史失败',
     );
     if (!Array.isArray(data)) return [];
-    return data.map((d: any) => ({
-      datetime: toMs(d.date),
-      open: num(d.open ?? 0) ?? 0,
-      high: num(d.high ?? 0) ?? 0,
-      low: num(d.low ?? 0) ?? 0,
-      close: num(d.close ?? d.nav ?? 0) ?? 0,
-      volume: num(d.volume ?? 0) ?? 0,
-      amount: num(d.amount) ?? undefined,
-    }));
+    return cleanCandles(
+      data.map((d: any) => ({
+        datetime: toMs(d.date),
+        open: num(d.open ?? 0) ?? 0,
+        high: num(d.high ?? 0) ?? 0,
+        low: num(d.low ?? 0) ?? 0,
+        close: num(d.close ?? d.nav ?? 0) ?? 0,
+        volume: num(d.volume ?? 0) ?? 0,
+        amount: num(d.amount) ?? undefined,
+      })),
+    );
   }
 
   // ------------------------- 特色数据 -------------------------

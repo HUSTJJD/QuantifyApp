@@ -18,6 +18,7 @@
  */
 import { StockSdkSource } from '@/api/sources/StockSdkSource';
 import { DataSourceError } from '@/api/MarketDataSource';
+import { isValidCandle } from '@/api/candleValidity';
 import type { Symbol } from '@/api';
 
 // ---------------- mock stock-sdk（真实 API 结构） ----------------
@@ -89,7 +90,7 @@ const mockSdk = {
     isTradingDay: jest.fn(),
     nextTradingDay: jest.fn(),
     prevTradingDay: jest.fn(),
-    marketStatus: jest.fn((m: string) => 'closed'),
+    marketStatus: jest.fn(() => 'closed'),
   },
   reference: { dividendDetail: jest.fn(), tradingCalendar: jest.fn() },
   options: {
@@ -935,5 +936,32 @@ describe('失败统一契约', () => {
     mockSdk.quotes.cn.mockRejectedValue(new DataSourceError('inner', 'other', 999));
     const s = new StockSdkSource();
     await expect(s.getQuotes([CN('600519')])).rejects.toMatchObject({ sourceId: 'other', upstreamCode: 999 });
+  });
+});
+
+// ---------------- 数据有效性（严格） ----------------
+describe('StockSdkSource.getKline 数据有效性（严格）', () => {
+  it('剔除 NaN/缺失/价格关系异常的脏数据，仅保留合法 K 线', async () => {
+    mockSdk.kline.cn.mockResolvedValue([
+      { date: '2024-01-01', open: 10, high: 11, low: 9, close: 10.5, volume: 1000, amount: 10500 }, // 合法
+      { date: '2024-01-02', open: NaN, high: 11, low: 9, close: 10.5, volume: 1000, amount: 10500 }, // NaN 价格
+      { date: '2024-01-03', open: 10, high: 5, low: 9, close: 10.5, volume: 1000, amount: 10500 }, // high<low/open/close
+      { date: '2024-01-04', open: 10, high: 11, low: 9, close: 10.5, volume: -1, amount: 10500 }, // 负成交量
+      { date: NaN as unknown as string, open: 10, high: 11, low: 9, close: 10.5, volume: 1000 }, // 非法时间
+    ]);
+    const res = await new StockSdkSource().getKline({ symbol: CN('600519'), period: 'day' });
+    expect(res.length).toBe(1); // 仅 1 根合法
+    expect(isValidCandle(res[0])).toBe(true);
+    expect(res[0].datetime).toBe('2024-01-01');
+  });
+
+  it('全为脏数据时返回空数组（而非带 NaN 的数组），交由上层 fallback', async () => {
+    mockSdk.kline.cn.mockResolvedValue([
+      { date: '2024-01-02', open: NaN, high: 11, low: 9, close: 10.5, volume: 1000 },
+      { date: '2024-01-03', open: 10, high: 5, low: 9, close: 10.5, volume: 1000 },
+    ]);
+    const res = await new StockSdkSource().getKline({ symbol: CN('600519'), period: 'day' });
+    expect(res).toEqual([]);
+    // 上层 MarketDataClient 在 data 为空时继续尝试下一个数据源
   });
 });
