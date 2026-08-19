@@ -16,6 +16,7 @@
  *      sdk 优先于 api。
  */
 import { createSource, hasSource, listAvailableSources } from './DataSourceRegistry';
+import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/cache/QuotesCache';
 import type { MarketDataSource } from './MarketDataSource';
 import { defaultApiConfig, getApiConfig, setApiConfig } from './config';
 import { HithsaHttpClient } from './sources/HithsaHttpClient';
@@ -686,9 +687,9 @@ export class MarketDataClient {
     return Promise.resolve();
   }
 
-  /** 兼容：清理本地行情缓存（新模式无本地缓存，空操作） */
+  /** 清理过期的行情快照缓存：删除 updatedAt 超过 TTL 的条目，避免旧快照无限留存。 */
   pruneQuotesCache(): Promise<void> {
-    return Promise.resolve();
+    return QuotesCache.pruneExpired(QUOTES_MAX_AGE_MS).then(() => undefined);
   }
 }
 

@@ -13,6 +13,9 @@ import type { Quote, Symbol } from '@/api';
 
 const CACHE_VERSION = 1;
 
+/** 行情快照缓存最大有效年龄（默认 1 天）。超过则视为过期，get 返回 null 触发重新拉取。 */
+export const QUOTES_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 interface QuoteCacheEntry {
   version: number;
   updatedAt: number;
@@ -28,11 +31,15 @@ function keyOf(symbols: Symbol[]): string {
 }
 
 export const QuotesCache = {
-  /** 读取缓存；版本不符或不存在返回 null */
-  async get(symbols: Symbol[]): Promise<Quote[] | null> {
+  /**
+   * 读取缓存；版本不符、不存在或（当传入 maxAgeMs 时）已超过最大年龄则返回 null。
+   * 过期返回 null 可让调用方走 loading 并触发一次后台刷新，避免界面永远停在旧快照。
+   */
+  async get(symbols: Symbol[], maxAgeMs?: number): Promise<Quote[] | null> {
     if (symbols.length === 0) return null;
     const entry = await storage.getObject<QuoteCacheEntry>(keyOf(symbols));
     if (!entry || entry.version !== CACHE_VERSION) return null;
+    if (maxAgeMs != null && Date.now() - (entry.updatedAt ?? 0) > maxAgeMs) return null;
     return entry.quotes;
   },
 

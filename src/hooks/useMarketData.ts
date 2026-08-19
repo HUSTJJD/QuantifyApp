@@ -3,9 +3,10 @@
  * 把异步 loading / error / data 三态管理收敛到这里，feature 组件直接消费。
  */
 import { useCallback, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { marketData } from '@/api';
 import { isTradingNow } from '@/utils/trading';
-import { QuotesCache } from '@/cache/QuotesCache';
+import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/cache/QuotesCache';
 import { logger } from '@/utils/logger';
 import type { Candle, KlineParams, Quote, Symbol } from '@/api';
 
@@ -23,12 +24,21 @@ export function useQuotes(
   const [tick, setTick] = useState(0);
   const key = JSON.stringify(symbols);
 
-  // 交易时段内自动轮询刷新行情；非交易时段（含周末/节假日）不打扰，显示上一交易日收盘快照。
+  // 交易时段内自动轮询刷新行情；非交易时段不打扰（收盘快照本就不变）。
+  // 注：时区错误会导致 isTradingNow 长期 false，从而永不自动刷新——已在 utils/trading 修复为按中国时区计算。
   useEffect(() => {
     const timer = setInterval(() => {
       if (isTradingNow()) setTick((t) => t + 1);
     }, 15_000);
     return () => clearInterval(timer);
+  }, []);
+
+  // 切回前台时强制刷新一次：避免跨日停留在同一屏时一直显示旧缓存（即使非交易时段也触发重拉快照）。
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setTick((t) => t + 1);
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
@@ -38,8 +48,9 @@ export function useQuotes(
       setState({ data: [], loading: false, error: null });
       return;
     }
-    // 1) 先秒显本地缓存（避免每次进入都 loading 好几秒），不等网络
-    QuotesCache.get(parsed).then((cached) => {
+    // 1) 先秒显本地缓存（避免每次进入都 loading 好几秒），不等网络。
+    //    传入 TTL：超过最大年龄的缓存视为过期，返回 null → 不秒显旧数据，直接进入后台刷新。
+    QuotesCache.get(parsed, QUOTES_MAX_AGE_MS).then((cached) => {
       if (alive && cached) setState({ data: cached, loading: false, error: null });
     });
     // 2) 后台拉取最新行情，成功后写回缓存并刷新 UI（失败保留缓存）

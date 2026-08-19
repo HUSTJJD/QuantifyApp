@@ -6,7 +6,7 @@
  *  - 用 react-native-paper 的 PaperProvider 提供统一 Material 组件主题。
  */
 import React, { useEffect, useState } from 'react';
-import { StatusBar } from 'react-native';
+import { StatusBar, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider as PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 // import { MaterialCommunityIcons } from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -40,6 +40,11 @@ function App(): React.JSX.Element {
     marketData.pruneQuotesCache().catch(() => undefined);
     // 启动个人量化信号引擎（随交易时段行情推送自动重算）
     startSignalEngine();
+    // 切回前台时再清理一次过期行情缓存，确保旧快照不会跨日残留
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') marketData.pruneQuotesCache().catch(() => undefined);
+    });
+    return () => appStateSub.remove();
   }, []);
 
   return (

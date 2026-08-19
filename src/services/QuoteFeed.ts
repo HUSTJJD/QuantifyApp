@@ -8,6 +8,7 @@
  *  - 行情刷新后驱动信号引擎对订阅标的重算买卖信号（见 onQuote 钩子）。
  * 若未来接入 sdk 的真·长连接推送，只需替换内部 fetch 实现，订阅者 API 不变。
  */
+import { AppState } from 'react-native';
 import type { Symbol } from '@/api';
 import { marketData } from '@/api';
 import { isTradingNow } from '@/utils/trading';
@@ -21,6 +22,7 @@ class QuoteFeed {
   private subscribed = new Set<string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private appStateSub: { remove: () => void } | null = null;
 
   /** 注册全局行情回调（如驱动信号重算）。 */
   public onQuote: ((symbols: Symbol[]) => void) | null = null;
@@ -36,21 +38,27 @@ class QuoteFeed {
     return this.subscribed.size;
   }
 
-  /** 手动触发一次刷新（如切回前台）。 */
+  /** 手动触发一次刷新（如切回前台）。force=true 时跳过交易时段门控，确保拿到最新快照。 */
   async refreshNow(): Promise<void> {
-    await this.poll();
+    await this.poll(true);
   }
 
   private ensureRunning(): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.poll(), POLL_MS);
-    // 立即跑一次，避免冷启动等待一个间隔
-    this.poll();
+    // 立即跑一次（强制），避免冷启动等待一个间隔，也确保非交易时段首屏也能拿到收盘快照
+    this.poll(true);
+    // 切回前台时强制刷新一次（避免跨日停留时一直显示旧缓存）
+    if (!this.appStateSub) {
+      this.appStateSub = AppState.addEventListener('change', (next) => {
+        if (next === 'active') this.refreshNow().catch(() => undefined);
+      });
+    }
   }
 
-  private async poll(): Promise<void> {
-    if (!isTradingNow()) {
-      // 非交易时段不打扰，不更新行情；但保持服务存活以便复市自动恢复
+  private async poll(force = false): Promise<void> {
+    if (!force && !isTradingNow()) {
+      // 非交易时段（非强制）：不打扰，不更新行情；但保持服务存活以便复市自动恢复
       return;
     }
     if (this.running) return;

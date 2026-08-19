@@ -801,11 +801,13 @@ describe('新增 API：板块 K 线 / 行情补充 / 北向个股 / 个股异动
     expect(r[0].code).toBe('600519');
   });
   it('getLargeOrders 委托 quotes.largeOrder', async () => {
-    mockSdk.quotes.largeOrder.mockResolvedValue([{ code: '600519', price: 10, volume: 100 }]);
+    mockSdk.quotes.largeOrder.mockResolvedValue([
+      { buyLargeRatio: 0.5, buySmallRatio: 0.2, sellLargeRatio: 0.3, sellSmallRatio: 0.1 },
+    ]);
     const s = new StockSdkSource();
     const r = await s.getLargeOrders(['600519']);
     expect(mockSdk.quotes.largeOrder).toHaveBeenCalledWith(['600519']);
-    expect(r[0].code).toBe('600519');
+    expect(r[0].buyLargeRatio).toBe(0.5);
   });
   it('getSectorFundFlowHistory 委托 fundFlow.sectorHistory', async () => {
     mockSdk.fundFlow.sectorHistory.mockResolvedValue([{ name: '银行' }]);
@@ -829,11 +831,16 @@ describe('新增 API：板块 K 线 / 行情补充 / 北向个股 / 个股异动
 
 describe('新增 API：期权命名空间 options.*', () => {
   it('getOptionIndexSpot 委托 options.index.spot', async () => {
-    mockSdk.options.index.spot.mockResolvedValue([{ code: 'IO2408-P-3500', name: 'IO' }]);
+    mockSdk.options.index.spot.mockResolvedValue({
+      calls: [
+        { symbol: 'IO2408-P-3500', buyVolume: null, buyPrice: null, price: null, askPrice: null, askVolume: null, openInterest: null, change: null, strikePrice: null },
+      ],
+      puts: [],
+    });
     const s = new StockSdkSource();
     const r = await s.getOptionIndexSpot('io', 'IO2408-P-3500');
     expect(mockSdk.options.index.spot).toHaveBeenCalledWith('io', 'IO2408-P-3500');
-    expect(r[0].code).toBe('IO2408-P-3500');
+    expect(r.calls[0].symbol).toBe('IO2408-P-3500');
   });
   it('getOptionIndexKline 委托 options.index.kline', async () => {
     mockSdk.options.index.kline.mockResolvedValue([{ time: 1, open: 1 }]);
