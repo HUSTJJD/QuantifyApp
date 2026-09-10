@@ -398,9 +398,31 @@ export class StockSdkSource extends BaseMarketDataSource {
       try {
         const codes = syms.map(toSdkCode);
         const raw: any[] = await this.guard<any[]>(this.sdk.quotes[ns](codes), `${ns.toUpperCase()} 行情失败`);
-        const byCode = new Map<string, any>((raw ?? []).map((r) => [r.code ?? '', r]));
+        // 代码匹配：精确 code → 数值归一（HK 00700/700）→ 位置对齐
+        const byCode = new Map<string, any>();
+        for (const r of raw ?? []) {
+          const c = String(r?.code ?? '');
+          if (c) byCode.set(c, r);
+        }
+        const list = raw ?? [];
         syms.forEach((s, i) => {
-          const r: any = byCode.get(codes[i]) ?? {};
+          const code = codes[i];
+          let r: any = byCode.get(code);
+          if (r == null) {
+            // HK/US 代码可能去前导零或格式不同：按数值等价再匹配一次
+            const norm = String(Number(code));
+            for (const [k, v] of byCode) {
+              if (String(Number(k)) === norm) {
+                r = v;
+                break;
+              }
+            }
+          }
+          if (r == null && list.length === syms.length) r = list[i];
+          // 查无数据：跳过，绝不伪造 0 价快照（0 价会让上层误判为有效行情）
+          if (r == null || (r.price == null && r.last == null && r.nav == null)) {
+            return;
+          }
           out.push(ns === 'fund' ? mapFundQuote(s, r) : mapQuote(s, r));
         });
       } catch (e) {

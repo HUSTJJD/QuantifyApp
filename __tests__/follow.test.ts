@@ -7,15 +7,17 @@
  */
 import { followSignal, estimateFollowQty, markFollowed, loadFollowed, FOLLOWED_KEY } from '@/simulation/follow';
 import { SimAccountRepo } from '@/simulation';
-import { storage } from '@/db/storage';
+import { resetQuantStore } from '@/db/QuantStore';
+import { MemoryStorageAdapter, setStorage } from '@/db/storage';
 import type { Symbol } from '@/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 
 describe('followSignal', () => {
   beforeEach(async () => {
+    setStorage(new MemoryStorageAdapter());
+    resetQuantStore();
     await SimAccountRepo.reset(100_000);
-    await storage.remove(FOLLOWED_KEY);
   });
 
   it('买入按资金比例估算整手股数', () => {

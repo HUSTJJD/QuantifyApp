@@ -117,19 +117,46 @@ describe('FuyaoApiSource.getKline', () => {
 });
 
 describe('FuyaoApiSource.getQuotes', () => {
-  it('批量快照按入参顺序返回', async () => {
+  it('批量快照按入参顺序返回，字段完整映射', async () => {
     const s = prepared();
     const snap = clientOf(s).aShare.prices.snapshot;
     snap.mockResolvedValueOnce({
       code: 0, message: '', request_id: 'x', data: {
         timestamp: 1, total: 1,
-        item: [{ thscode: '600519.SH', last_price: 1500, prev_price: 1480, open_price: 1490, high_price: 1510, low_price: 1485, volume: 1000, turnover: 1500000, price_change: 20, price_change_ratio_pct: 1.35 }],
+        item: [{
+          thscode: '600519.SH', last_price: 1500, prev_price: 1480, open_price: 1490,
+          high_price: 1510, low_price: 1485, volume: 1000, turnover: 1500000,
+          price_change: 20, price_change_ratio_pct: 1.35,
+        }],
       },
     });
     const quotes = await s.getQuotes([SYM]);
     expect(quotes).toHaveLength(1);
-    // 快照归一化的 symbol 不含 name（name 由上层解析）
-    expect(quotes[0]).toMatchObject({ symbol: { code: '600519', exchange: 'SH' }, last: 1500, prevClose: 1480, high: 1510, low: 1485 });
+    expect(quotes[0]).toMatchObject({
+      symbol: { code: '600519', exchange: 'SH' },
+      last: 1500,
+      prevClose: 1480,
+      open: 1490,
+      high: 1510,
+      low: 1485,
+      volume: 1000,
+      amount: 1500000,
+      change: 20,
+      changePct: 1.35,
+    });
+  });
+
+  it('上游无 last_price 的行被过滤，不伪造 0 价', async () => {
+    const s = prepared();
+    const snap = clientOf(s).aShare.prices.snapshot;
+    snap.mockResolvedValueOnce({
+      code: 0, message: '', request_id: 'x', data: {
+        timestamp: 1, total: 1,
+        item: [{ thscode: '600519.SH', volume: 100 }],
+      },
+    });
+    const quotes = await s.getQuotes([SYM]);
+    expect(quotes).toHaveLength(0);
   });
 });
 

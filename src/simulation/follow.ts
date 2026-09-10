@@ -6,7 +6,7 @@
  */
 import type { Symbol } from '@/api';
 import type { SignalSide } from '@/quant/strategies';
-import { storage } from '@/db/storage';
+import { quantStore } from '@/db/QuantStore';
 import { openThsDetail } from '@/utils/thsDeepLink';
 import { SimAccountRepo } from './SimAccount';
 import { roundShare, type SubmitResult } from './engine';
@@ -16,15 +16,19 @@ export const FOLLOWED_KEY = 'sim_followed_v1';
 
 /** 读取已跟单记录（跨会话防重复） */
 export async function loadFollowed(): Promise<Set<string>> {
-  const arr = await storage.getObject<string[]>(FOLLOWED_KEY);
-  return new Set(arr ?? []);
+  const rows = await quantStore().listFollowed();
+  return new Set(rows.map((r) => r.dedupeKey));
 }
 
-/** 记录已跟单（按 symbolKey_side 去重） */
+/** 记录已跟单（按 dedupe_key 去重，落 followed_signal 表） */
 export async function markFollowed(key: string): Promise<void> {
-  const set = await loadFollowed();
-  set.add(key);
-  await storage.setObject(FOLLOWED_KEY, Array.from(set));
+  const [symbolKey, side] = key.split('_');
+  await quantStore().markFollowed({
+    dedupeKey: key,
+    symbolKey: symbolKey ?? key,
+    side: side ?? '',
+    createdAt: Date.now(),
+  });
 }
 
 export interface FollowOptions {

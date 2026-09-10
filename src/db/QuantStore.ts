@@ -31,14 +31,6 @@ export interface MethodCacheRow {
   expiresAt: number;
 }
 
-export interface QuoteCacheRow {
-  cacheKey: string;
-  symbols: string;
-  payload: string;
-  updatedAt: number;
-  expiresAt: number;
-}
-
 export interface TradeSignalRow {
   symbolKey: string;
   code: string;
@@ -129,7 +121,6 @@ export interface FollowedSignalRow {
 
 class MemMaps {
   methodCache = new Map<string, MethodCacheRow>();
-  quoteCache = new Map<string, QuoteCacheRow>();
   tradeSignal = new Map<string, TradeSignalRow>();
   strategyProfile = new Map<string, StrategyProfileRow>();
   simAccount = new Map<string, SimAccountRow>();
@@ -208,55 +199,6 @@ export class QuantStore {
       return;
     }
     await db.execute('DELETE FROM method_cache WHERE cache_key = ?', [cacheKey]);
-  }
-
-  // ---------- quote_cache ----------
-
-  async getQuoteCache(cacheKey: string, maxAgeMs: number, now = Date.now()): Promise<string | null> {
-    const db = await this.db();
-    if (!db) {
-      const r = mem.quoteCache.get(cacheKey);
-      return r && now - r.updatedAt <= maxAgeMs ? r.payload : null;
-    }
-    const res = await db.execute(
-      'SELECT payload, updated_at FROM quote_cache WHERE cache_key = ?',
-      [cacheKey],
-    );
-    const row = res.rows?.[0] as Record<string, Scalar> | undefined;
-    if (!row) return null;
-    if (now - num(row.updated_at) > maxAgeMs) return null;
-    return String(row.payload);
-  }
-
-  async putQuoteCache(row: QuoteCacheRow): Promise<void> {
-    const db = await this.db();
-    if (!db) {
-      mem.quoteCache.set(row.cacheKey, row);
-      return;
-    }
-    await db.execute(
-      `INSERT OR REPLACE INTO quote_cache
-       (cache_key, symbols, payload, updated_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [row.cacheKey, row.symbols, row.payload, row.updatedAt, row.expiresAt],
-    );
-  }
-
-  async pruneQuoteCache(ttlMs: number, now = Date.now()): Promise<number> {
-    const cutoff = now - ttlMs;
-    const db = await this.db();
-    if (!db) {
-      let n = 0;
-      for (const [k, r] of mem.quoteCache) {
-        if (r.updatedAt < cutoff) {
-          mem.quoteCache.delete(k);
-          n += 1;
-        }
-      }
-      return n;
-    }
-    const res = await db.execute('DELETE FROM quote_cache WHERE updated_at < ?', [cutoff]);
-    return res.rowsAffected ?? 0;
   }
 
   // ---------- trade_signal ----------
@@ -651,7 +593,6 @@ export class QuantStore {
   /** 仅测试：重置内存回落状态 */
   static resetMemory(): void {
     mem.methodCache.clear();
-    mem.quoteCache.clear();
     mem.tradeSignal.clear();
     mem.strategyProfile.clear();
     mem.simAccount.clear();

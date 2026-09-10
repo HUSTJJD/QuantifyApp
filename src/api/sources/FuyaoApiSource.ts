@@ -311,6 +311,8 @@ export class FuyaoApiSource extends BaseMarketDataSource {
     );
     const byCode = new Map<string, Quote>();
     for (const item of res.data?.item ?? []) {
+      // 无 last_price 的行视为上游无数据，跳过，不伪造 0 价快照
+      if (item.last_price == null) continue;
       byCode.set(item.thscode, this.toQuote(fromThsCode(item.thscode), item));
     }
     return symbols.map((s) => byCode.get(toThsCode(s))).filter((q): q is Quote => !!q);

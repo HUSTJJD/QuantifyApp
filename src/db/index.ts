@@ -3,21 +3,20 @@
  *
  * 模块结构：
  *   connection.ts      —— SQLite 连接单例（全库唯一，跨 Store 共享）
- *   schema.ts          —— 建表 DDL（kline / tickers / sync_state /
- *                         adjustment_factors / 用户数据表）
+ *   schema.ts          —— 建表 DDL（无迁移，每次启动幂等 CREATE）
  *   SqliteKlineAdapter —— K 线引擎（原生 op-sqlite，生产）
  *   AsyncStorageKlineAdapter —— K 线引擎（AsyncStorage 回落：jest / 无原生模块）
  *   KlineDatabase      —— 引擎门面 + 内存热索引（业务只依赖它）
  *   MarketMetaStore    —— 标的库 / 同步进度 / 复权因子
  *   UserStore          —— 自选 / 分组 / 持仓 / 资产快照
- *   storage/           —— 键值小数据层（设置项、缓存等），引擎可插拔
+ *   DomainCache        —— 行情领域表（quote/calendar/fund_flow/…）
+ *   QuantStore         —— method_cache / trade_signal / strategy_profile / sim_* / followed
+ *   storage/           —— 键值小数据层（设置项等），引擎可插拔
  *
  * 业务层入口：
- *   - 结构化数据：import { database, userStore } from '@/db'
- *   - 键值数据：  import { storage, StorageKeys } from '@/db/storage'
- *
- * 连接生命周期：SQLite 连接由 connection.ts 统一持有（跨 K 线库 / MarketMetaStore 共享），
- * 关闭走 closeDatabase() / closeSqlite()，适配器自身不持有连接。
+ *   - 行情 API：  import { marketData } from '@/api'
+ *   - 结构化数据：import { database, userStore, domainCache, quantStore } from '@/db'
+ *   - 键值设置：  import { storage, StorageKeys } from '@/db/storage'
  */
 import { KlineDatabase } from './KlineDatabase';
 import { AsyncStorageKlineAdapter } from './AsyncStorageKlineAdapter';
@@ -55,8 +54,7 @@ export type { KlineDatabasePort } from './KlineDatabase';
 export { MarketMetaStore } from './MarketMetaStore';
 export { UserStore, userStore } from './UserStore';
 export { QuantStore, quantStore, resetQuantStore } from './QuantStore';
-export { DomainCacheStore, domainCache, resetDomainCache } from './DomainCacheStore';
-export { DomainCacheV6, domainCacheV6, resetDomainCacheV6 } from './DomainCacheV6';
+export { DomainCacheStore, domainCache, resetDomainCache, type DomainCache } from './DomainCache';
 export type {
   AssetSnapshot,
   Holding,

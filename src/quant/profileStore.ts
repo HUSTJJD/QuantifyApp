@@ -1,36 +1,78 @@
 /**
  * 策略档案仓储。
- *  - 持久化 StrategyProfile[] 到 AsyncStorage；
+ *  - 持久化到 SQLite strategy_profile 表；
  *  - 首次启动（无存档）时按内置模板播种；
- *  - 每次变更同步写一份「全局信号聚合配置」（SIGNAL_CONFIG 兼容层），
- *    让 SignalEngine/自选页的聚合买卖信号继续跟随策略启用状态与参数。
+ *  - 每次变更同步写一份「全局信号聚合配置」（KV，SignalEngine 读取）。
  */
+import { quantStore } from '@/db/QuantStore';
 import { storage, StorageKeys } from '@/db/storage';
 import { STRATEGIES } from './strategies';
 import { createProfileFromTemplate, type StrategyProfile } from './profile';
 
-const KEY = StorageKeys.STRATEGY_PROFILES;
-const SIGNAL_CFG_KEY = StorageKeys.SIGNAL_CONFIG;
+function toRow(p: StrategyProfile) {
+  return {
+    id: p.id,
+    templateId: p.templateId,
+    name: p.name,
+    note: p.note ?? '',
+    enabled: p.enabled,
+    autoTrade: p.autoTrade,
+    params: p.params ?? {},
+    selection: p.selection as unknown as Record<string, unknown>,
+    exitRules: p.exit as unknown as Record<string, unknown>,
+    tradeRules: p.trade as unknown as Record<string, unknown>,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
+function fromRow(r: {
+  id: string; templateId: string; name: string; note: string;
+  enabled: boolean; autoTrade: boolean;
+  params: Record<string, number>;
+  selection: Record<string, unknown>;
+  exitRules: Record<string, unknown>;
+  tradeRules: Record<string, unknown>;
+  createdAt: number; updatedAt: number;
+}): StrategyProfile {
+  return {
+    id: r.id,
+    templateId: r.templateId,
+    name: r.name,
+    note: r.note,
+    enabled: r.enabled,
+    autoTrade: r.autoTrade,
+    params: r.params,
+    selection: r.selection as unknown as StrategyProfile['selection'],
+    exit: r.exitRules as unknown as StrategyProfile['exit'],
+    trade: r.tradeRules as unknown as StrategyProfile['trade'],
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
 
 /** 读所有档案；无存档时播种默认（内置模板各一个）。 */
 export async function getProfiles(): Promise<StrategyProfile[]> {
-  const saved = await storage.getObject<StrategyProfile[]>(KEY);
-  if (saved && saved.length > 0) return saved;
+  const rows = await quantStore().listProfiles();
+  if (rows.length > 0) return rows.map(fromRow);
   const seeded = STRATEGIES.map((s) => createProfileFromTemplate(s.id));
   await saveProfiles(seeded);
   return seeded;
 }
 
 export async function getProfile(id: string): Promise<StrategyProfile | undefined> {
-  const ps = await getProfiles();
-  return ps.find((p) => p.id === id);
+  const row = await quantStore().getProfile(id);
+  return row ? fromRow(row) : undefined;
 }
 
 /** 全量覆盖保存（并发时以最后一次调用为准）。 */
 export async function saveProfiles(profiles: StrategyProfile[]): Promise<void> {
   const now = Date.now();
+  const store = quantStore();
   const list = profiles.map((p) => (p.updatedAt ? p : { ...p, updatedAt: now }));
-  await storage.setObject(KEY, list);
+  for (const p of list) {
+    await store.upsertProfile(toRow(p));
+  }
   await syncSignalConfig(list);
 }
 
@@ -45,8 +87,9 @@ export async function upsertProfile(p: StrategyProfile): Promise<StrategyProfile
 }
 
 export async function deleteProfile(id: string): Promise<StrategyProfile[]> {
+  await quantStore().deleteProfile(id);
   const next = (await getProfiles()).filter((p) => p.id !== id);
-  await saveProfiles(next);
+  await syncSignalConfig(next);
   return next;
 }
 
@@ -61,5 +104,5 @@ async function syncSignalConfig(profiles: StrategyProfile[]): Promise<void> {
     enabled[p.templateId] = p.enabled;
     if (p.params && Object.keys(p.params).length > 0) params[p.templateId] = p.params;
   }
-  await storage.setObject(SIGNAL_CFG_KEY, { enabled, params });
+  await storage.setObject(StorageKeys.SIGNAL_CONFIG, { enabled, params });
 }

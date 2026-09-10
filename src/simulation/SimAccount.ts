@@ -1,11 +1,12 @@
 /**
  * 模拟盘账户仓储（支持多实例）。
  * 每个实例是独立命名空间下的一个账户：默认账户（现有模拟盘）与每个「策略专属模拟盘」
- * 各自独立资金/持仓/成交，存储 key 隔离互不影响。
- * 持久化使用 storage 抽象（AsyncStorage / 内存），不依赖 RN 运行时，可单测。
+ * 各自独立资金/持仓/成交。
+ * 持久化落 SQLite sim_account / sim_position / sim_order / sim_trade 表（profileId = scope）。
  */
 import type { Symbol } from '@/api';
 import type { SimAccount, Order, SimPosition, Trade, Side, OrderType } from './types';
+import { quantStore } from '@/db/QuantStore';
 import { storage } from '@/db/storage';
 import {
   submitOrder as engineSubmit,
@@ -14,9 +15,10 @@ import {
   type SubmitInput,
   type SubmitResult,
 } from './engine';
+import { simSymbolKey } from '@/db/QuantStore';
 
-const DEFAULT_KEY = 'sim_account_v1';
-const DEFAULT_LAST_SETTLE_KEY = 'sim_last_settle_v1';
+const DEFAULT_SCOPE = '';
+const LAST_SETTLE_PREFIX = 'sim_last_settle_v1';
 
 export interface AccountRepo {
   get(): Promise<SimAccount>;
@@ -42,32 +44,136 @@ function emptyAccount(initCash = DEFAULT_INIT_CASH): SimAccount {
 
 /** 新建一个独立命名空间的账户仓储。默认账户调用 createAccountRepo()（不传 scope）。 */
 export function createAccountRepo(scope?: string): AccountRepo {
-  const KEY = scope ? `${scope}.sim_account_v1` : DEFAULT_KEY;
-  const LAST_SETTLE_KEY = scope ? `${scope}.sim_last_settle_v1` : DEFAULT_LAST_SETTLE_KEY;
+  const profileId = scope ?? DEFAULT_SCOPE;
+  const LAST_SETTLE_KEY = scope ? `${scope}.${LAST_SETTLE_PREFIX}` : LAST_SETTLE_PREFIX;
+  const store = quantStore();
 
   /** 内存缓存，避免每次操作都读盘（每实例独立） */
   let cache: SimAccount | null = null;
 
+  async function loadFromDb(): Promise<SimAccount> {
+    const accRow = await store.getSimAccount(profileId);
+    if (!accRow) return emptyAccount();
+    const posRows = await store.listSimPositions(profileId);
+    const orderRows = await store.listSimOrders(profileId, 500);
+    const tradeRows = await store.listSimTrades(profileId, 500);
+    return {
+      initCash: accRow.initCash,
+      cash: accRow.cash,
+      frozen: accRow.frozen,
+      initialized: accRow.initialized,
+      positions: posRows.map((r) => ({
+        symbol: { code: r.code, exchange: r.exchange as Symbol['exchange'] },
+        shares: r.shares,
+        available: r.available,
+        costPrice: r.costPrice,
+        todayBuy: r.todayBuy,
+      })),
+      orders: orderRows.map((r) => ({
+        id: r.id,
+        symbol: { code: r.code, exchange: r.exchange as Symbol['exchange'] },
+        side: r.side as Order['side'],
+        type: r.type as Order['type'],
+        price: r.price,
+        quantity: r.quantity,
+        filledQty: r.filledQty,
+        status: r.status as Order['status'],
+        message: r.message || undefined,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
+      trades: tradeRows
+        .slice()
+        .reverse()
+        .map((r) => ({
+          id: r.id,
+          orderId: r.orderId,
+          symbol: { code: r.code, exchange: r.exchange as Symbol['exchange'] },
+          side: r.side as Trade['side'],
+          price: r.price,
+          quantity: r.quantity,
+          amount: r.amount,
+          fee: r.fee,
+          cashDelta: r.cashDelta,
+          ts: r.ts,
+        })),
+    };
+  }
+
+  async function persistToDb(account: SimAccount): Promise<void> {
+    const now = Date.now();
+    await store.putSimAccount({
+      profileId,
+      initCash: account.initCash,
+      cash: account.cash,
+      frozen: account.frozen,
+      initialized: account.initialized,
+      updatedAt: now,
+    });
+    await store.deleteSimPositions(profileId);
+    for (const p of account.positions) {
+      if (p.shares <= 0) continue;
+      await store.putSimPosition({
+        profileId,
+        symbolKey: simSymbolKey(p.symbol),
+        code: p.symbol.code,
+        exchange: p.symbol.exchange,
+        shares: p.shares,
+        available: p.available,
+        costPrice: p.costPrice,
+        todayBuy: p.todayBuy,
+      });
+    }
+    // 只写最新 orders/trades（避免重复 upsert 全量）
+    const lastOrder = account.orders[account.orders.length - 1];
+    if (lastOrder) {
+      await store.appendSimOrder({
+        profileId,
+        id: lastOrder.id,
+        symbolKey: simSymbolKey(lastOrder.symbol),
+        code: lastOrder.symbol.code,
+        exchange: lastOrder.symbol.exchange,
+        side: lastOrder.side,
+        type: lastOrder.type,
+        price: lastOrder.price,
+        quantity: lastOrder.quantity,
+        filledQty: lastOrder.filledQty,
+        status: lastOrder.status,
+        message: lastOrder.message ?? '',
+        createdAt: lastOrder.createdAt,
+        updatedAt: lastOrder.updatedAt,
+      });
+    }
+    const lastTrade = account.trades[account.trades.length - 1];
+    if (lastTrade) {
+      await store.appendSimTrade({
+        profileId,
+        id: lastTrade.id,
+        orderId: lastTrade.orderId,
+        symbolKey: simSymbolKey(lastTrade.symbol),
+        code: lastTrade.symbol.code,
+        exchange: lastTrade.symbol.exchange,
+        side: lastTrade.side,
+        price: lastTrade.price,
+        quantity: lastTrade.quantity,
+        amount: lastTrade.amount,
+        fee: lastTrade.fee,
+        cashDelta: lastTrade.cashDelta,
+        ts: lastTrade.ts,
+      });
+    }
+  }
+
   async function load(): Promise<SimAccount> {
     if (cache) return cache;
-    const raw = await storage.getObject<SimAccount>(KEY);
-    if (raw) {
-      try {
-        cache = raw;
-        await maybeSettle();
-        return cache;
-      } catch {
-        // 损坏数据忽略，重建
-      }
-    }
-    cache = emptyAccount();
-    await persist(cache);
+    cache = await loadFromDb();
+    await maybeSettle();
     return cache;
   }
 
   async function persist(account: SimAccount): Promise<void> {
     cache = account;
-    await storage.setObject(KEY, account);
+    await persistToDb(account);
   }
 
   /** 隔夜解锁：跨自然日时把今日买入转为可用 */
@@ -79,7 +185,7 @@ export function createAccountRepo(scope?: string): AccountRepo {
     const settled = settleOvernight(cache.positions);
     cache = { ...cache, positions: settled };
     await storage.setString(LAST_SETTLE_KEY, today);
-    await storage.setObject(KEY, cache);
+    await persistToDb(cache);
   }
 
   return {
@@ -88,6 +194,7 @@ export function createAccountRepo(scope?: string): AccountRepo {
     },
     async reset(initCash = DEFAULT_INIT_CASH): Promise<SimAccount> {
       const acc = emptyAccount(initCash);
+      await store.clearSim(profileId);
       await persist(acc);
       return acc;
     },
@@ -114,7 +221,8 @@ export function createAccountRepo(scope?: string): AccountRepo {
     async positionOf(symbol: Symbol): Promise<SimPosition | null> {
       const acc = await load();
       return (
-        acc.positions.find((p) => p.symbol.code === symbol.code && p.symbol.exchange === symbol.exchange) ?? null
+        acc.positions.find((p) => p.symbol.code === symbol.code && p.symbol.exchange === symbol.exchange) ??
+        null
       );
     },
   };

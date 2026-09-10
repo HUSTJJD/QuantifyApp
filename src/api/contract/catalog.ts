@@ -128,14 +128,59 @@ function nonEmptyRows<T>(row: (x: T) => string | null, label: string): (r: T[]) 
 const num = (v: unknown, field: string): string | null =>
   typeof v === 'number' && Number.isFinite(v) ? null : `${field} 不是有限数值`;
 
+/** 可空有限数：undefined/null 合法，数字必须有限 */
+const numOrNull = (v: unknown, field: string): string | null =>
+  v == null || (typeof v === 'number' && Number.isFinite(v)) ? null : `${field} 不是 null 或有限数值`;
+
 const nonEmptyStr = (v: unknown, field: string): string | null =>
   typeof v === 'string' && v.length > 0 ? null : `${field} 不是非空字符串`;
 
 const hasSymbol = (v: unknown): string | null => {
   if (!v || typeof v !== 'object') return '缺少 symbol';
   const s = v as { code?: unknown; exchange?: unknown };
-  return typeof s.code === 'string' && typeof s.exchange === 'string' ? null : 'symbol.code/exchange 缺失';
+  return typeof s.code === 'string' && s.code.length > 0 && typeof s.exchange === 'string' && s.exchange.length > 0
+    ? null
+    : 'symbol.code/exchange 缺失或为空';
 };
+
+/** 行情语义：禁止全 0 快照（last/prevClose 双 0 = 上游无数据被伪造） */
+const quoteSemantics = (q: { last?: number; prevClose?: number }): string | null => {
+  if (typeof q.last !== 'number' || !Number.isFinite(q.last)) return 'last 不是有限数值';
+  if (q.last === 0 && (!q.prevClose || q.prevClose === 0)) {
+    return '行情 last/prevClose 全为 0，疑似上游无数据被伪造快照';
+  }
+  return null;
+};
+
+/** K 线语义：OHLC 有限且 high >= low；open/close 在 [low, high] 内（允许边界） */
+function candleSemantics(c: {
+  datetime?: unknown; open?: number; high?: number; low?: number; close?: number;
+}): string | null {
+  if (c.datetime == null) return 'datetime 缺失';
+  const o = c.open, h = c.high, l = c.low, cl = c.close;
+  if (typeof o !== 'number' || !Number.isFinite(o)) return 'open 不是有限数值';
+  if (typeof h !== 'number' || !Number.isFinite(h)) return 'high 不是有限数值';
+  if (typeof l !== 'number' || !Number.isFinite(l)) return 'low 不是有限数值';
+  if (typeof cl !== 'number' || !Number.isFinite(cl)) return 'close 不是有限数值';
+  if (h < l) return `high(${h}) < low(${l})`;
+  if (o < l - 1e-9 || o > h + 1e-9) return `open(${o}) 不在 [low,high] 内`;
+  if (cl < l - 1e-9 || cl > h + 1e-9) return `close(${cl}) 不在 [low,high] 内`;
+  return null;
+}
+
+/** 统一 Quote 行语义 */
+function quoteRow(q: unknown, label = '行情'): string | null {
+  if (!q || typeof q !== 'object') return `${label}: 行不是对象`;
+  const row = q as { symbol?: unknown; last?: number; prevClose?: number; open?: number; high?: number; low?: number; volume?: number };
+  const e = hasSymbol(row.symbol);
+  if (e) return `${label}: ${e}`;
+  const s = quoteSemantics(row);
+  if (s) return `${label}: ${s}`;
+  if (row.volume != null && (typeof row.volume !== 'number' || !Number.isFinite(row.volume))) {
+    return `${label}: volume 非法`;
+  }
+  return null;
+}
 
 // ---------------- 目录本体 ----------------
 
@@ -146,7 +191,11 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '搜索',
     group: 'meta',
     buildArgs: () => [{ keyword: '贵州茅台' }],
-    assertResult: isArray('搜索结果不是数组'),
+    assertResult: nonEmptyRows<{ symbol?: unknown; name?: string; market?: string }>(r => {
+      const e = hasSymbol(r?.symbol);
+      if (e) return e;
+      return nonEmptyStr(r?.name, 'name');
+    }, '搜索'),
   },
   listTickers: {
     method: 'listTickers',
@@ -162,11 +211,7 @@ export const METHOD_CATALOG: CatalogMap = {
     label: 'A股行情',
     group: 'quote',
     buildArgs: () => [[A_SHARE]],
-    assertResult: nonEmptyRows<{ symbol?: unknown; last?: number }>(q => {
-      const e = hasSymbol(q?.symbol);
-      if (e) return e;
-      return num(q?.last, 'last');
-    }, '行情'),
+    assertResult: nonEmptyRows<unknown>(q => quoteRow(q, '行情'), '行情'),
   },
   getOrderBook: {
     method: 'getOrderBook',
@@ -184,15 +229,15 @@ export const METHOD_CATALOG: CatalogMap = {
     label: 'A股日K',
     group: 'quote',
     buildArgs: () => [{ symbol: A_SHARE, period: 'day', count: 30, adjust: 'none' }],
-    assertResult: nonEmptyRows<{ datetime?: unknown; open?: number; high?: number; low?: number; close?: number }>(
-      c =>
-        (c?.datetime == null ? 'datetime 缺失' : null) ??
-        num(c?.open, 'open') ??
-        num(c?.high, 'high') ??
-        num(c?.low, 'low') ??
-        num(c?.close, 'close'),
-      'K线',
-    ),
+    assertResult: r => {
+      if (!Array.isArray(r)) return 'K线不是数组';
+      if (r.length === 0) return 'K线为空数组';
+      for (const c of r as Array<Parameters<typeof candleSemantics>[0]>) {
+        const err = candleSemantics(c);
+        if (err) return `K线: ${err}`;
+      }
+      return null;
+    },
   },
   getAdjustmentFactors: {
     method: 'getAdjustmentFactors',
@@ -208,7 +253,11 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '估值',
     group: 'valuation',
     buildArgs: () => [[A_SHARE]],
-    assertResult: isArray('估值不是数组'),
+    assertResult: nonEmptyRows<{ symbol?: unknown; peTtm?: number | null; pbMrq?: number | null }>(v => {
+      const e = hasSymbol(v?.symbol);
+      if (e) return e;
+      return numOrNull(v?.peTtm, 'peTtm') ?? numOrNull(v?.pbMrq, 'pbMrq');
+    }, '估值'),
   },
 
   // ================= 财务 =================
@@ -275,7 +324,7 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '指数行情',
     group: 'index',
     buildArgs: () => [[SH_IDX]],
-    assertResult: isArray('指数行情不是数组'),
+    assertResult: nonEmptyRows<unknown>(q => quoteRow(q, '指数行情'), '指数行情'),
   },
   getIndexKline: {
     method: 'getIndexKline',
@@ -291,20 +340,34 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '基金档案',
     group: 'fund',
     buildArgs: () => [OTC_FUND, 'otc'],
+    assertResult: r => {
+      const p = r as { symbol?: unknown; ticker?: string };
+      const e = hasSymbol(p?.symbol);
+      if (e) return e;
+      return nonEmptyStr(p?.ticker, 'ticker');
+    },
   },
   getFundHoldings: {
     method: 'getFundHoldings',
     label: '基金持仓',
     group: 'fund',
     buildArgs: () => [OTC_FUND, 'otc'],
-    assertResult: isArray('基金持仓不是数组'),
+    assertResult: nonEmptyRows<{ symbol?: unknown; ticker?: string; stockName?: string; holdRatio?: number }>(h => {
+      const e = hasSymbol(h?.symbol);
+      if (e) return e;
+      return nonEmptyStr(h?.ticker, 'ticker') ?? num(h?.holdRatio, 'holdRatio');
+    }, '基金持仓'),
   },
   getFundNav: {
     method: 'getFundNav',
     label: '基金净值',
     group: 'fund',
     buildArgs: () => [OTC_FUND, 'otc', 'year'],
-    assertResult: isArray('基金净值不是数组'),
+    assertResult: nonEmptyRows<{ symbol?: unknown; navDate?: string; unitNav?: number | null }>(n => {
+      const e = hasSymbol(n?.symbol);
+      if (e) return e;
+      return nonEmptyStr(n?.navDate, 'navDate') ?? numOrNull(n?.unitNav, 'unitNav');
+    }, '基金净值'),
   },
   getFundReturns: {
     method: 'getFundReturns',
@@ -324,7 +387,10 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '基金行情快照',
     group: 'fund',
     buildArgs: () => [OTC_FUND],
-    assertResult: r => num((r as { last?: number })?.last, 'last'),
+    assertResult: r => {
+      const q = r as { symbol?: unknown; last?: number };
+      return quoteRow(q, '基金快照');
+    },
   },
   getFundHistorical: {
     method: 'getFundHistorical',
@@ -335,8 +401,32 @@ export const METHOD_CATALOG: CatalogMap = {
   },
 
   // ================= 特色数据 =================
-  getLimitUpPool: { method: 'getLimitUpPool', label: '涨停池', group: 'features', buildArgs: () => [{}] },
-  getLimitUpLadder: { method: 'getLimitUpLadder', label: '涨停梯队', group: 'features', buildArgs: () => [] },
+  getLimitUpPool: {
+    method: 'getLimitUpPool',
+    label: '涨停池',
+    group: 'features',
+    buildArgs: () => [{}],
+    assertResult: r => {
+      const w = r as { items?: unknown };
+      if (!w || !Array.isArray(w.items)) return '涨停池 items 不是数组';
+      return nonEmptyRows<{ symbol?: unknown; name?: string; lastPrice?: number; changePct?: number }>(it => {
+        const e = hasSymbol(it?.symbol);
+        if (e) return e;
+        return nonEmptyStr(it?.name, 'name') ?? num(it?.lastPrice, 'lastPrice');
+      }, '涨停池')(w.items as never[]);
+    },
+  },
+  getLimitUpLadder: {
+    method: 'getLimitUpLadder',
+    label: '涨停梯队',
+    group: 'features',
+    buildArgs: () => [],
+    assertResult: r => {
+      const l = r as { days?: unknown };
+      if (!l || !Array.isArray(l.days)) return '天梯 days 不是数组';
+      return null;
+    },
+  },
   getLimitDownPool: { method: 'getLimitDownPool', label: '跌停池', group: 'features', buildArgs: () => [{}] },
   getLimitBreakPool: { method: 'getLimitBreakPool', label: '炸板池', group: 'features', buildArgs: () => [{}] },
   getMarketFundFlow: {
@@ -486,7 +576,9 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '交易日历',
     group: 'calendar',
     buildArgs: () => [],
-    assertResult: isArray('交易日历不是数组'),
+    assertResult: nonEmptyRows<{ dateMs?: number; date?: string }>(d => {
+      return num(d?.dateMs, 'dateMs') ?? nonEmptyStr(d?.date, 'date');
+    }, '交易日历'),
   },
   isTradingDay: {
     method: 'isTradingDay',
@@ -655,7 +747,10 @@ export const METHOD_CATALOG: CatalogMap = {
     label: '当日分时',
     group: 'timeshare',
     buildArgs: () => [{ symbol: A_SHARE }],
-    assertResult: isArray('分时不是数组'),
+    assertResult: nonEmptyRows<{ time?: string | number; price?: number }>(p => {
+      if (p?.time == null) return 'time 缺失';
+      return num(p?.price, 'price');
+    }, '分时'),
   },
 
   // ================= 其它 =================

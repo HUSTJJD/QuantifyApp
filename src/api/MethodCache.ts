@@ -2,7 +2,7 @@
  * MethodCache —— 数据源方法读穿缓存（领域表优先，method_cache 兜底）。
  *
  * 架构原则（与 K 线 + 复权因子一致）：
- *  - 能按列建模的核心行情 → 领域表（DomainCacheStore）：
+ *  - 能按列建模的核心行情 → 领域表（DomainCache）：
  *      getQuotes → quote_snapshot
  *      getTradingDays/isTradingDay → trading_calendar
  *      getMainForce → fund_flow
@@ -19,8 +19,7 @@
  * 写库失败不拖垮主请求；空结果默认不写。
  */
 import { quantStore } from '@/db/QuantStore';
-import { domainCache } from '@/db/DomainCacheStore';
-import { domainCacheV6 } from '@/db/DomainCacheV6';
+import { domainCache } from '@/db/DomainCache';
 import { stableStringify } from './coalesce';
 import type { DataSourceMethod, MethodArgs, MethodResult } from './methods';
 import type { Quote, Symbol } from '@/api';
@@ -37,6 +36,8 @@ function n0(v: unknown): number {
 function s(v: unknown): string {
   return v == null ? '' : String(v);
 }
+
+type Row = Record<string, unknown>;
 
 export interface MethodCachePolicy {
   ttlMs: number;
@@ -93,9 +94,9 @@ export const METHOD_CACHE_POLICIES: Partial<Record<DataSourceMethod, MethodCache
   getIndustryBoardConstituents: { ttlMs: 5 * 60_000, store: 'domain' },
   getConceptBoardConstituents: { ttlMs: 5 * 60_000, store: 'domain' },
   getNorthboundSummary: { ttlMs: 5 * 60_000, store: 'domain' },
-  getNorthboundHoldingRank: { ttlMs: 60 * 60_000, store: 'domain' },
   getNorthboundHistory: { ttlMs: 60 * 60_000, store: 'domain' },
   getNorthboundIndividual: { ttlMs: 60 * 60_000, store: 'domain' },
+  getNorthboundHoldingRank: { ttlMs: 60 * 60_000, store: 'fallback' },
   getMarginTargetList: { ttlMs: 60 * 60_000, store: 'domain' },
   getBlockTradeMarketStat: { ttlMs: 60 * 60_000, store: 'domain' },
   getBlockTradeDailyStat: { ttlMs: 60 * 60_000, store: 'domain' },
@@ -334,7 +335,7 @@ async function readDomain(
       const raw = args[0] as Symbol[] | undefined;
       if (!raw || raw.length === 0) return null;
       const keys = raw.map(toFullCode);
-      const rows = await domainCacheV6().listValuations(keys, now);
+      const rows = await domainCache().listValuations(keys, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: s(r.exchange) as Symbol['exchange'] },
@@ -349,7 +350,7 @@ async function readDomain(
     }
     case 'getFinancials': {
       const code = String(args[0] ?? '');
-      const rows = await domainCacheV6().listFinancialReports(code);
+      const rows = await domainCache().listFinancialReports(code);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: s(r.exchange) as Symbol['exchange'] },
@@ -367,7 +368,7 @@ async function readDomain(
     }
     case 'getStockInfo': {
       const code = String(args[0] ?? '');
-      const r = await domainCacheV6().getStockInfo(code, now);
+      const r = await domainCache().getStockInfo(code, now);
       if (!r) return null;
       try {
         return r.payload ? JSON.parse(s(r.payload)) : { code, name: s(r.name), industry: s(r.industry) };
@@ -377,7 +378,7 @@ async function readDomain(
     }
     case 'listIndices': {
       const tag = (args[0] as string | undefined) ?? 'industry';
-      const rows = await domainCacheV6().listIndexCatalog(tag, now);
+      const rows = await domainCache().listIndexCatalog(tag, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: 'TI' as Symbol['exchange'] },
@@ -387,7 +388,7 @@ async function readDomain(
     case 'getIndexConstituents': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCacheV6().listIndexConstituents(toFullCode(sym), now);
+      const rows = await domainCache().listIndexConstituents(toFullCode(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: 'SH' as Symbol['exchange'] },
@@ -398,7 +399,7 @@ async function readDomain(
     case 'getSkyrocketList': {
       const listType = method === 'getHotStockList' ? 'hot' : 'skyrocket';
       const period = (args[0] as string | undefined) ?? 'day';
-      const rows = await domainCacheV6().listHotStocks(listType, period, now);
+      const rows = await domainCache().listHotStocks(listType, period, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
@@ -410,7 +411,7 @@ async function readDomain(
       }));
     }
     case 'getMarketFundFlow': {
-      const rows = await domainCacheV6().listMarketFundFlows(now);
+      const rows = await domainCache().listMarketFundFlows(now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: s(r.trade_date),
@@ -431,7 +432,7 @@ async function readDomain(
       const boardType = method === 'getIndustryBoardConstituents' ? 'industry' : 'concept';
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCacheV6().listBoardConstituents(boardType, toFullCode(sym), now);
+      const rows = await domainCache().listBoardConstituents(boardType, toFullCode(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
@@ -444,7 +445,7 @@ async function readDomain(
       }));
     }
     case 'getNorthboundSummary': {
-      const rows = await domainCacheV6().listNorthboundSummaries(now);
+      const rows = await domainCache().listNorthboundSummaries(now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: s(r.trade_date),
@@ -465,7 +466,7 @@ async function readDomain(
     case 'getNorthboundHistory': {
       const p = args[0] as { direction?: string } | undefined;
       const dir = p?.direction ?? 'north';
-      const rows = await domainCacheV6().listNorthboundHistory(dir, now);
+      const rows = await domainCache().listNorthboundHistory(dir, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: s(r.trade_date),
@@ -483,7 +484,7 @@ async function readDomain(
     case 'getFundProfile': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const r = await domainCacheV6().getFundProfile(toFullCode(sym), now);
+      const r = await domainCache().getFundProfile(toFullCode(sym), now);
       if (!r) return null;
       return {
         symbol: sym,
@@ -497,7 +498,7 @@ async function readDomain(
     case 'getFundNav': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCacheV6().listFundNavs(toFullCode(sym));
+      const rows = await domainCache().listFundNavs(toFullCode(sym));
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: sym,
@@ -509,7 +510,7 @@ async function readDomain(
     case 'getAdjustmentFactors': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCacheV6().listAdjustmentFactors(toFullCode(sym));
+      const rows = await domainCache().listAdjustmentFactors(toFullCode(sym));
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: sym,
@@ -519,6 +520,481 @@ async function readDomain(
         perShareBonus: n(r.per_share_bonus),
         allotmentRatio: n(r.allotment_ratio),
         allotmentPrice: n(r.allotment_price),
+      }));
+    }
+
+    // ---- v6：三表 / 指标 / 分红 / 天梯 / 龙虎榜细分 / 异动 ----
+    case 'getIncomeStatements':
+    case 'getBalanceSheets':
+    case 'getCashFlowStatements': {
+      const stmtType =
+        method === 'getIncomeStatements' ? 'income'
+        : method === 'getBalanceSheets' ? 'balance' : 'cash_flow';
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return null;
+      const rows = await dc.listFinancialStatements(toFullCode(p.symbol), stmtType, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => {
+        try {
+          return JSON.parse(s(r.payload));
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+    }
+    case 'getFinancialIndicators': {
+      const p = args[0] as { symbol?: Symbol; report?: string } | undefined;
+      if (!p?.symbol || !p.report) return null;
+      const rows = await dc.listFinancialIndicators(toFullCode(p.symbol), p.report, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        category: s(r.category),
+        indexId: s(r.index_id),
+        value: r.value == null ? null : s(r.value),
+      }));
+    }
+    case 'getDividendDetail': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return null;
+      const rows = await dc.listDividendDetails(toFullCode(sym), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: sym.exchange },
+        name: s(r.name),
+        reportDate: r.report_date == null ? null : s(r.report_date),
+        dividendPretax: n(r.dividend_pretax),
+        dividendYield: n(r.dividend_yield),
+        bonusRatio: n(r.bonus_ratio),
+        transferRatio: n(r.transfer_ratio),
+        exDividendDate: r.ex_dividend_date == null ? null : s(r.ex_dividend_date),
+        payDate: r.pay_date == null ? null : s(r.pay_date),
+      }));
+    }
+    case 'getLimitUpLadder': {
+      const rows = await dc.listLadder(todayYmd(), now);
+      if (rows.length === 0) return null;
+      const byBoard = new Map<string, unknown[]>();
+      for (const r of rows) {
+        const bk = s(r.board_key);
+        if (!byBoard.has(bk)) byBoard.set(bk, []);
+        byBoard.get(bk)!.push({
+          symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+          name: s(r.name),
+          boardNum: n0(r.board_num),
+          sealNextDay: r.seal_nextday == null ? null : r.seal_nextday === 1,
+          signLevel: n0(r.sign_level),
+        });
+      }
+      const boards: Record<string, unknown[]> = {};
+      for (const [k, v] of byBoard) boards[k] = v;
+      return {
+        timestamp: now,
+        window: { length: 1, dateList: [todayYmd()], boardCaps: {} },
+        days: [{ date: todayYmd(), boards }],
+      };
+    }
+    case 'getDragonTigerList': {
+      const opts = args[0] as { boardType?: string; date?: string } | undefined;
+      const date = (opts?.date ?? todayYmd()).replace(/-/g, '');
+      const boardType = opts?.boardType ?? 'all';
+      const rows = await dc.listDragonTigerStocks(date, boardType, now);
+      if (rows.length === 0) return null;
+      return {
+        boardType,
+        tradeDate: date,
+        count: rows.length,
+        stockCount: rows.length,
+        stockItems: rows.map((r) => ({
+          symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+          name: s(r.name),
+          conceptList: [] as string[],
+          change: n0(r.change_pct),
+          buyValue: n0(r.buy_value),
+          sellValue: n0(r.sell_value),
+          netValue: n0(r.net_value),
+          netRate: n0(r.net_rate),
+          orgNetValue: n0(r.org_net_value),
+          hotMoneyNetValue: n0(r.hot_money_net_value),
+          hotRank: n0(r.hot_rank),
+          rangeDays: n0(r.range_days),
+          limitReason: s(r.limit_reason),
+        })),
+        hotMoneyItems: [],
+      };
+    }
+    case 'getDragonTigerInstitution': {
+      const p = args[0] as { startDate?: string; endDate?: string } | undefined;
+      const date = (p?.endDate ?? todayYmd()).replace(/-/g, '');
+      const rows = await dc.listDragonTigerInstitutions(date, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        date: s(r.trade_date),
+        close: n(r.close_price),
+        changePct: n(r.change_pct),
+        buyOrgCount: n(r.buy_org_count),
+        sellOrgCount: n(r.sell_org_count),
+        orgBuyAmount: n(r.org_buy_amount),
+        orgSellAmount: n(r.org_sell_amount),
+        orgNetAmount: n(r.org_net_amount),
+      }));
+    }
+    case 'getDragonTigerBranchRank': {
+      const period = (args[0] as string | undefined) ?? '1month';
+      const rows = await dc.listDragonTigerBranches(period, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        code: s(r.code),
+        name: s(r.name),
+        totalBuyAmount: n(r.total_buy_amount),
+        totalSellAmount: n(r.total_sell_amount),
+        buyCount: n(r.buy_count),
+        sellCount: n(r.sell_count),
+        totalCount: n(r.total_count),
+      }));
+    }
+    case 'getDragonTigerSeatDetail': {
+      const p = args[0] as { symbol?: Symbol; date?: string } | undefined;
+      if (!p?.symbol) return null;
+      const date = (p.date ?? todayYmd()).replace(/-/g, '');
+      const rows = await dc.listDragonTigerSeats(date, p.symbol.code, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        rank: n(r.rank_no),
+        branchName: s(r.branch_name),
+        buyAmount: n(r.buy_amount),
+        buyAmountRatio: n(r.buy_amount_ratio),
+        sellAmount: n(r.sell_amount),
+        sellAmountRatio: n(r.sell_amount_ratio),
+        netAmount: n(r.net_amount),
+        side: s(r.side) === 'sell' ? 'sell' : 'buy',
+      }));
+    }
+    case 'getAnomalyList':
+    case 'getStockChangeEvents':
+    case 'getStockTodaySurge': {
+      const et =
+        method === 'getAnomalyList' ? 'list'
+        : method === 'getStockChangeEvents' ? 'stock_change' : 'surge';
+      const rows = await dc.listAnomalies(et, now);
+      if (rows.length === 0) return null;
+      if (method === 'getAnomalyList') {
+        return rows.map((r) => ({
+          symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+          stockName: s(r.name),
+          analysisContent: s(r.info),
+          keywordList: s(r.change_type_label) ? [s(r.change_type_label)] : [],
+          tagName: s(r.change_type_label),
+        }));
+      }
+      if (method === 'getStockChangeEvents') {
+        return rows.map((r) => ({
+          time: s(r.event_time),
+          symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+          name: s(r.name),
+          changeType: s(r.change_type) || 'unknown',
+          changeTypeLabel: s(r.change_type_label),
+          info: s(r.info),
+        }));
+      }
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        changeType: s(r.change_type_label) || null,
+        info: s(r.info) || null,
+        price: n(r.price),
+        changePct: n(r.change_pct),
+      }));
+    }
+    case 'getNorthboundHoldingRank': {
+      // northbound_holding 表尚未接 list/put；暂 miss，策略仍 domain（后续补）
+      return null;
+    }
+    case 'getNorthboundIndividual': {
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return null;
+      const rows = await dc.listNorthboundIndividuals(toFullCode(p.symbol), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        holdShares: n(r.hold_shares),
+        holdMarketValue: n(r.hold_market_value),
+        holdRatioFloat: n(r.hold_ratio_float),
+        holdRatioTotal: n(r.hold_ratio_total),
+        close: n(r.close_price),
+        changePct: n(r.change_pct),
+      }));
+    }
+    case 'getMarginTargetList': {
+      const date = ((args[0] as string | undefined) ?? todayYmd()).replace(/-/g, '');
+      const rows = await dc.listMarginTargets(date, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        date: s(r.trade_date),
+        finBalance: n(r.fin_balance),
+        finBuyAmount: n(r.fin_buy_amount),
+        finRepayAmount: n(r.fin_repay_amount),
+        loanBalance: n(r.loan_balance),
+        loanSellVolume: n(r.loan_sell_volume),
+        loanRepayVolume: n(r.loan_repay_volume),
+      }));
+    }
+    case 'getBlockTradeMarketStat': {
+      const rows = await dc.listBlockTradeMarket(now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        shClose: n(r.sh_close),
+        shChangePct: n(r.sh_change_pct),
+        totalAmount: n(r.total_amount),
+        premiumAmount: n(r.premium_amount),
+        premiumRatio: n(r.premium_ratio),
+        discountAmount: n(r.discount_amount),
+        discountRatio: n(r.discount_ratio),
+      }));
+    }
+    case 'getBlockTradeDailyStat': {
+      const p = args[0] as { endDate?: string } | undefined;
+      const date = (p?.endDate ?? todayYmd()).replace(/-/g, '');
+      const rows = await dc.listBlockTradeDaily(date, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        date: s(r.trade_date),
+        changePct: n(r.change_pct),
+        close: n(r.close_price),
+        dealCount: n(r.deal_count),
+        dealTotalAmount: n(r.deal_total_amount),
+        dealTotalVolume: n(r.deal_total_volume),
+        premiumAmount: n(r.premium_amount),
+        discountAmount: n(r.discount_amount),
+      }));
+    }
+    case 'getAuctionSnapshot': {
+      const rows = await dc.listAuctionSnapshots(todayYmd(), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        auctionPrice: n(r.auction_price),
+        auctionPct: n(r.auction_pct),
+        auctionVolume: n(r.auction_volume),
+        auctionAmount: n(r.auction_amount),
+        auctionUnmatched: n(r.auction_unmatched),
+        auctionTurnoverPct: n(r.auction_turnover_pct),
+        preClosePrice: n(r.pre_close_price),
+        openPrice: n(r.open_price),
+        lastPrice: n(r.last_price),
+        floatMarketCap: n(r.float_market_cap),
+      }));
+    }
+    case 'getShortTermBenchmark': {
+      const rows = await dc.listShortTermBenchmarks(todayYmd(), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
+        name: s(r.name),
+        auctionPct: n(r.auction_pct),
+        tags: (() => { try { return JSON.parse(s(r.tags)) as string[]; } catch { return []; } })(),
+      }));
+    }
+    case 'getFundHoldings': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return null;
+      const rows = await dc.listFundHoldings(toFullCode(sym), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        symbol: sym,
+        ticker: s(r.ticker),
+        stockName: s(r.stock_name),
+        holdRatio: n0(r.hold_ratio),
+      }));
+    }
+    case 'getFundDividendList': {
+      const rows = await dc.listFundDividends(now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        code: s(r.fund_code),
+        name: s(r.fund_name),
+        equityRecordDate: r.equity_record_date == null ? null : s(r.equity_record_date),
+        exDividendDate: r.ex_dividend_date == null ? null : s(r.ex_dividend_date),
+        dividendPerShare: n(r.dividend_per_share),
+        payDate: r.pay_date == null ? null : s(r.pay_date),
+        dividendType: r.dividend_type == null ? null : s(r.dividend_type),
+      }));
+    }
+    case 'getFundRankHistory': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return null;
+      const code = sym.code;
+      const rows = await dc.listFundRankHistory(code, now);
+      if (rows.length === 0) return null;
+      return {
+        code,
+        name: rows[0]?.fund_name == null ? null : s(rows[0].fund_name),
+        items: rows.map((r) => ({
+          date: s(r.trade_date),
+          rank: n(r.rank_no),
+          total: n(r.total),
+          percentile: n(r.percentile),
+        })),
+      };
+    }
+    case 'getChipDistribution': {
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return null;
+      const rows = await dc.listChips(toFullCode(p.symbol), now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        profitRatio: n(r.profit_ratio),
+        avgCost: n(r.avg_cost),
+        cost90Low: n(r.cost90_low),
+        cost90High: n(r.cost90_high),
+        concentration90: n(r.concentration90),
+        cost70Low: n(r.cost70_low),
+        cost70High: n(r.cost70_high),
+        concentration70: n(r.concentration70),
+      }));
+    }
+    case 'getOptionQuotes': {
+      const p = args[0] as { product?: string; contract?: string } | undefined;
+      if (!p?.product || !p.contract) return null;
+      const rows = await dc.listOptionLegs(p.product, p.contract, now);
+      if (rows.length === 0) return null;
+      const mapLeg = (r: Record<string, unknown>) => ({
+        symbol: s(r.symbol),
+        buyVolume: n(r.buy_volume),
+        buyPrice: n(r.buy_price),
+        price: n(r.price),
+        askPrice: n(r.ask_price),
+        askVolume: n(r.ask_volume),
+        openInterest: n(r.open_interest),
+        change: n(r.change_amt),
+        strikePrice: n(r.strike_price),
+      });
+      return {
+        calls: rows.filter((r) => s(r.quote_kind) === 'calls').map(mapLeg),
+        puts: rows.filter((r) => s(r.quote_kind) === 'puts').map(mapLeg),
+      };
+    }
+    case 'getOptionKline': {
+      const p = args[0] as { kind?: string; code?: string } | undefined;
+      if (!p?.kind || !p.code) return null;
+      const rows = await dc.listOptionKlines(p.kind, p.code, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        open: n(r.open_price),
+        high: n(r.high_price),
+        low: n(r.low_price),
+        close: n(r.close_price),
+        volume: n(r.volume),
+      }));
+    }
+    case 'getOptionCffexQuotes': {
+      const rows = await dc.listOptionCffex(now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        code: s(r.code),
+        name: s(r.name),
+        price: n(r.price),
+        change: n(r.change_amt),
+        changePct: n(r.change_pct),
+        volume: n(r.volume),
+        amount: n(r.amount),
+        openInterest: n(r.open_interest),
+        strikePrice: n(r.strike_price),
+        remainDays: n(r.remain_days),
+        prevSettle: n(r.prev_settle),
+        open: n(r.open_price),
+      }));
+    }
+    case 'getOptionLhb': {
+      const p = args[0] as { symbol?: Symbol; date?: string } | undefined;
+      if (!p?.symbol) return null;
+      const date = (p.date ?? todayYmd()).replace(/-/g, '');
+      const rows = await dc.listOptionLhb(date, p.symbol.code, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        tradeType: s(r.trade_type),
+        date: s(r.trade_date),
+        symbol: s(r.symbol),
+        targetName: s(r.target_name),
+        rank: n0(r.rank_no),
+        memberName: s(r.member_name),
+        buyVolume: n(r.buy_volume),
+        sellVolume: n(r.sell_volume),
+        netBuyVolume: n(r.net_buy_volume),
+        buyVolumeRatio: n(r.buy_volume_ratio),
+        sellVolumeRatio: n(r.sell_volume_ratio),
+      }));
+    }
+    case 'getFuturesKline':
+    case 'getFuturesGlobalKline': {
+      const kind = method === 'getFuturesKline' ? 'domestic' : 'global';
+      const p = args[0] as { code?: string } | undefined;
+      if (!p?.code) return null;
+      const rows = await dc.listFuturesKlines(kind, p.code, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        code: s(r.code),
+        name: s(r.name),
+        open: n(r.open_price),
+        high: n(r.high_price),
+        low: n(r.low_price),
+        close: n(r.close_price),
+        volume: n(r.volume),
+        amount: n(r.amount),
+        changePct: n(r.change_pct),
+        change: n(r.change_amt),
+        openInterest: n(r.open_interest),
+      }));
+    }
+    case 'getFuturesGlobalSpot': {
+      const rows = await dc.listFuturesSpots(now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        code: s(r.code),
+        name: s(r.name),
+        price: n(r.price),
+        change: n(r.change_amt),
+        changePct: n(r.change_pct),
+        open: n(r.open_price),
+        high: n(r.high_price),
+        low: n(r.low_price),
+        prevSettle: n(r.prev_settle),
+        volume: n(r.volume),
+        openInterest: n(r.open_interest),
+      }));
+    }
+    case 'getFuturesInventory': {
+      const p = args[0] as { code?: string } | undefined;
+      if (!p?.code) return null;
+      const rows = await dc.listFuturesInventory('domestic', p.code, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        code: s(r.code),
+        date: s(r.trade_date),
+        inventory: n(r.inventory),
+        change: n(r.change_amt),
+      }));
+    }
+    case 'getFuturesComexInventory': {
+      const p = args[0] as { metal?: string } | undefined;
+      if (!p?.metal) return null;
+      const rows = await dc.listFuturesInventory('comex', p.metal, now);
+      if (rows.length === 0) return null;
+      return rows.map((r) => ({
+        date: s(r.trade_date),
+        name: s(r.name),
+        storageTon: n(r.storage_ton),
+        storageOunce: n(r.storage_ounce),
       }));
     }
     default:
@@ -740,7 +1216,7 @@ async function writeDomain(
     // ---- v6 写 ----
     case 'getValuations': {
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putValuations(
+      await domainCache().putValuations(
         list.map((it) => {
           const sym = it.symbol as Symbol | undefined;
           return {
@@ -763,7 +1239,7 @@ async function writeDomain(
     case 'getFinancials': {
       const code = String(args[0] ?? '');
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putFinancialReports(
+      await domainCache().putFinancialReports(
         code,
         list.map((it) => {
           const sym = it.symbol as Symbol | undefined;
@@ -789,7 +1265,7 @@ async function writeDomain(
     case 'getStockInfo': {
       const code = String(args[0] ?? '');
       const obj = (result ?? {}) as Record<string, unknown>;
-      await domainCacheV6().putStockInfo(
+      await domainCache().putStockInfo(
         code,
         {
           code,
@@ -804,7 +1280,7 @@ async function writeDomain(
     case 'listIndices': {
       const tag = (args[0] as string | undefined) ?? 'industry';
       const list = (result ?? []) as Array<{ symbol?: Symbol; name?: string }>;
-      await domainCacheV6().putIndexCatalog(
+      await domainCache().putIndexCatalog(
         tag,
         list.map((it) => ({
           tag,
@@ -819,7 +1295,7 @@ async function writeDomain(
       const sym = args[0] as Symbol | undefined;
       if (!sym) return;
       const list = (result ?? []) as Array<{ symbol?: Symbol; name?: string }>;
-      await domainCacheV6().putIndexConstituents(
+      await domainCache().putIndexConstituents(
         toFullCode(sym),
         list.map((it) => ({
           index_code: toFullCode(sym),
@@ -835,7 +1311,7 @@ async function writeDomain(
       const listType = method === 'getHotStockList' ? 'hot' : 'skyrocket';
       const period = (args[0] as string | undefined) ?? 'day';
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putHotStocks(
+      await domainCache().putHotStocks(
         listType, period,
         list.map((it, i) => {
           const sym = it.symbol as Symbol | undefined;
@@ -856,7 +1332,7 @@ async function writeDomain(
     }
     case 'getMarketFundFlow': {
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putMarketFundFlows(
+      await domainCache().putMarketFundFlows(
         list.map((it) => ({
           trade_date: it.date ?? '',
           sh_close: it.shClose,
@@ -880,7 +1356,7 @@ async function writeDomain(
       const sym = args[0] as Symbol | undefined;
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putBoardConstituents(
+      await domainCache().putBoardConstituents(
         boardType, toFullCode(sym),
         list.map((it) => {
           const s2 = it.symbol as Symbol | undefined;
@@ -905,7 +1381,7 @@ async function writeDomain(
     }
     case 'getNorthboundSummary': {
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putNorthboundSummaries(
+      await domainCache().putNorthboundSummaries(
         list.map((it) => ({
           trade_date: it.date ?? '',
           board_name: it.boardName ?? '',
@@ -929,7 +1405,7 @@ async function writeDomain(
       const p = args[0] as { direction?: string } | undefined;
       const dir = p?.direction ?? 'north';
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putNorthboundHistory(
+      await domainCache().putNorthboundHistory(
         dir,
         list.map((it) => ({
           trade_date: it.date ?? '',
@@ -952,7 +1428,7 @@ async function writeDomain(
       const sym = args[0] as Symbol | undefined;
       if (!sym) return;
       const obj = (result ?? {}) as Record<string, unknown>;
-      await domainCacheV6().putFundProfile(
+      await domainCache().putFundProfile(
         toFullCode(sym),
         {
           ticker: obj.ticker ?? '',
@@ -969,7 +1445,7 @@ async function writeDomain(
       const sym = args[0] as Symbol | undefined;
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putFundNavs(
+      await domainCache().putFundNavs(
         toFullCode(sym),
         list.map((it) => ({
           nav_date: it.navDate ?? '',
@@ -984,7 +1460,7 @@ async function writeDomain(
       const sym = args[0] as Symbol | undefined;
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
-      await domainCacheV6().putAdjustmentFactors(
+      await domainCache().putAdjustmentFactors(
         toFullCode(sym),
         list.map((it) => ({
           ticker: it.ticker ?? '',
@@ -995,6 +1471,594 @@ async function writeDomain(
           allotment_price: it.allotmentPrice,
         })).filter((r) => r.ex_date_ms),
         now,
+      );
+      return;
+    }
+
+    // ---- v6 写 ----
+    case 'getIncomeStatements':
+    case 'getBalanceSheets':
+    case 'getCashFlowStatements': {
+      const stmtType =
+        method === 'getIncomeStatements' ? 'income'
+        : method === 'getBalanceSheets' ? 'balance' : 'cash_flow';
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFinancialStatements(
+        toFullCode(p.symbol), stmtType,
+        list.map((it) => ({
+          symbol_key: toFullCode(p.symbol!),
+          statement_type: stmtType,
+          period: it.period ?? '',
+          period_end_ms: it.periodEndMs ?? 0,
+          payload: JSON.stringify(it),
+        })).filter((r) => r.period_end_ms),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFinancialIndicators': {
+      const p = args[0] as { symbol?: Symbol; report?: string } | undefined;
+      if (!p?.symbol || !p.report) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFinancialIndicators(
+        toFullCode(p.symbol), p.report,
+        list.map((it) => ({
+          symbol_key: toFullCode(p.symbol!),
+          report: p.report,
+          category: it.category ?? '',
+          index_id: it.indexId ?? '',
+          value: it.value == null ? null : String(it.value),
+        })),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getDividendDetail': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putDividendDetails(
+        toFullCode(sym),
+        list.map((it) => ({
+          symbol_key: toFullCode(sym),
+          code: sym.code,
+          name: it.name ?? '',
+          report_date: it.reportDate,
+          dividend_pretax: it.dividendPretax,
+          dividend_yield: it.dividendYield,
+          bonus_ratio: it.bonusRatio,
+          transfer_ratio: it.transferRatio,
+          ex_dividend_date: it.exDividendDate,
+          pay_date: it.payDate,
+        })),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getLimitUpLadder': {
+      const wrapped = result as { days?: Array<{ date?: string; boards?: Record<string, unknown[]> }> } | null;
+      const days = wrapped?.days ?? [];
+      const date = days[0]?.date ?? todayYmd();
+      const boards = days[0]?.boards ?? {};
+      const rows: Row[] = [];
+      for (const [boardKey, list] of Object.entries(boards)) {
+        for (const it of (list ?? []) as Array<Record<string, unknown>>) {
+          const sym = it.symbol as Symbol | undefined;
+          rows.push({
+            trade_date: date,
+            board_key: boardKey,
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            board_num: it.boardNum,
+            seal_nextday: it.sealNextDay == null ? null : it.sealNextDay ? 1 : 0,
+            sign_level: it.signLevel,
+          });
+        }
+      }
+      await dc.putLadder(date, rows.filter((r) => r.code), ttlMs, now);
+      return;
+    }
+    case 'getDragonTigerList': {
+      const opts = args[0] as { boardType?: string; date?: string } | undefined;
+      const date = (opts?.date ?? todayYmd()).replace(/-/g, '');
+      const boardType = opts?.boardType ?? 'all';
+      const wrapped = result as { stockItems?: Array<Record<string, unknown>> } | null;
+      const list = wrapped?.stockItems ?? [];
+      await dc.putDragonTigerStocks(
+        date, boardType,
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: date,
+            board_type: boardType,
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            change_pct: it.change,
+            buy_value: it.buyValue,
+            sell_value: it.sellValue,
+            net_value: it.netValue,
+            net_rate: it.netRate,
+            org_net_value: it.orgNetValue,
+            hot_money_net_value: it.hotMoneyNetValue,
+            hot_rank: it.hotRank,
+            range_days: it.rangeDays,
+            limit_reason: it.limitReason,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getDragonTigerInstitution': {
+      const p = args[0] as { endDate?: string } | undefined;
+      const date = (p?.endDate ?? todayYmd()).replace(/-/g, '');
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putDragonTigerInstitutions(
+        date,
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: date,
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            close_price: it.close,
+            change_pct: it.changePct,
+            buy_org_count: it.buyOrgCount,
+            sell_org_count: it.sellOrgCount,
+            org_buy_amount: it.orgBuyAmount,
+            org_sell_amount: it.orgSellAmount,
+            org_net_amount: it.orgNetAmount,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getDragonTigerBranchRank': {
+      const period = (args[0] as string | undefined) ?? '1month';
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putDragonTigerBranches(
+        period,
+        list.map((it, i) => ({
+          period,
+          rank_no: i + 1,
+          code: it.code ?? '',
+          name: it.name ?? '',
+          total_buy_amount: it.totalBuyAmount,
+          total_sell_amount: it.totalSellAmount,
+          buy_count: it.buyCount,
+          sell_count: it.sellCount,
+          total_count: it.totalCount,
+        })),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getDragonTigerSeatDetail': {
+      const p = args[0] as { symbol?: Symbol; date?: string } | undefined;
+      if (!p?.symbol) return;
+      const date = (p.date ?? todayYmd()).replace(/-/g, '');
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putDragonTigerSeats(
+        date, p.symbol.code,
+        list.map((it) => ({
+          trade_date: date,
+          code: p.symbol!.code,
+          rank_no: it.rank,
+          branch_name: it.branchName ?? '',
+          buy_amount: it.buyAmount,
+          buy_amount_ratio: it.buyAmountRatio,
+          sell_amount: it.sellAmount,
+          sell_amount_ratio: it.sellAmountRatio,
+          net_amount: it.netAmount,
+          side: it.side,
+        })).filter((r) => r.branch_name),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getAnomalyList':
+    case 'getStockChangeEvents':
+    case 'getStockTodaySurge': {
+      const et =
+        method === 'getAnomalyList' ? 'list'
+        : method === 'getStockChangeEvents' ? 'stock_change' : 'surge';
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putAnomalies(
+        et,
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            event_type: et,
+            code: sym?.code ?? it.code ?? '',
+            name: it.name ?? it.stockName ?? '',
+            event_time: it.time ?? it.eventTime,
+            change_type: it.changeType,
+            change_type_label: it.changeTypeLabel ?? it.tagName,
+            info: it.info ?? it.analysisContent,
+            price: it.price,
+            change_pct: it.changePct,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getNorthboundIndividual': {
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putNorthboundIndividuals(
+        toFullCode(p.symbol),
+        list.map((it) => ({
+          trade_date: it.date ?? '',
+          symbol_key: toFullCode(p.symbol!),
+          hold_shares: it.holdShares,
+          hold_market_value: it.holdMarketValue,
+          hold_ratio_float: it.holdRatioFloat,
+          hold_ratio_total: it.holdRatioTotal,
+          close_price: it.close,
+          change_pct: it.changePct,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getMarginTargetList': {
+      const date = ((args[0] as string | undefined) ?? todayYmd()).replace(/-/g, '');
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putMarginTargets(
+        date,
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: date,
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            fin_balance: it.finBalance,
+            fin_buy_amount: it.finBuyAmount,
+            fin_repay_amount: it.finRepayAmount,
+            loan_balance: it.loanBalance,
+            loan_sell_volume: it.loanSellVolume,
+            loan_repay_volume: it.loanRepayVolume,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getBlockTradeMarketStat': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putBlockTradeMarket(
+        list.map((it) => ({
+          trade_date: it.date ?? '',
+          sh_close: it.shClose,
+          sh_change_pct: it.shChangePct,
+          total_amount: it.totalAmount,
+          premium_amount: it.premiumAmount,
+          premium_ratio: it.premiumRatio,
+          discount_amount: it.discountAmount,
+          discount_ratio: it.discountRatio,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getBlockTradeDailyStat': {
+      const p = args[0] as { endDate?: string } | undefined;
+      const date = (p?.endDate ?? todayYmd()).replace(/-/g, '');
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putBlockTradeDaily(
+        date,
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: date,
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            change_pct: it.changePct,
+            close_price: it.close,
+            deal_count: it.dealCount,
+            deal_total_amount: it.dealTotalAmount,
+            deal_total_volume: it.dealTotalVolume,
+            premium_amount: it.premiumAmount,
+            discount_amount: it.discountAmount,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getAuctionSnapshot': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putAuctionSnapshots(
+        todayYmd(),
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: todayYmd(),
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            auction_price: it.auctionPrice,
+            auction_pct: it.auctionPct,
+            auction_volume: it.auctionVolume,
+            auction_amount: it.auctionAmount,
+            auction_unmatched: it.auctionUnmatched,
+            auction_turnover_pct: it.auctionTurnoverPct,
+            pre_close_price: it.preClosePrice,
+            open_price: it.openPrice,
+            last_price: it.lastPrice,
+            float_market_cap: it.floatMarketCap,
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getShortTermBenchmark': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putShortTermBenchmarks(
+        todayYmd(),
+        list.map((it) => {
+          const sym = it.symbol as Symbol | undefined;
+          return {
+            trade_date: todayYmd(),
+            code: sym?.code ?? '',
+            name: it.name ?? '',
+            auction_pct: it.auctionPct,
+            tags: JSON.stringify(it.tags ?? []),
+          };
+        }).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFundHoldings': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFundHoldings(
+        toFullCode(sym),
+        list.map((it) => ({
+          symbol_key: toFullCode(sym),
+          ticker: it.ticker ?? '',
+          stock_name: it.stockName ?? '',
+          hold_ratio: it.holdRatio,
+        })).filter((r) => r.ticker),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFundDividendList': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFundDividends(
+        list.map((it) => ({
+          fund_code: it.code ?? '',
+          fund_name: it.name ?? '',
+          equity_record_date: it.equityRecordDate,
+          ex_dividend_date: it.exDividendDate,
+          dividend_per_share: it.dividendPerShare,
+          pay_date: it.payDate,
+          dividend_type: it.dividendType,
+        })).filter((r) => r.fund_code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFundRankHistory': {
+      const sym = args[0] as Symbol | undefined;
+      if (!sym) return;
+      const wrapped = result as { code?: string; name?: string; items?: Array<Record<string, unknown>> } | null;
+      const code = wrapped?.code ?? sym.code;
+      await dc.putFundRankHistory(
+        code,
+        (wrapped?.items ?? []).map((it) => ({
+          fund_code: code,
+          fund_name: wrapped?.name,
+          trade_date: it.date ?? '',
+          rank_no: it.rank,
+          total: it.total,
+          percentile: it.percentile,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getChipDistribution': {
+      const p = args[0] as { symbol?: Symbol } | undefined;
+      if (!p?.symbol) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putChips(
+        toFullCode(p.symbol),
+        list.map((it) => ({
+          symbol_key: toFullCode(p.symbol!),
+          trade_date: it.date ?? '',
+          profit_ratio: it.profitRatio,
+          avg_cost: it.avgCost,
+          cost90_low: it.cost90Low,
+          cost90_high: it.cost90High,
+          concentration90: it.concentration90,
+          cost70_low: it.cost70Low,
+          cost70_high: it.cost70High,
+          concentration70: it.concentration70,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getOptionQuotes': {
+      const p = args[0] as { product?: string; contract?: string } | undefined;
+      if (!p?.product || !p.contract) return;
+      const wrapped = result as { calls?: Array<Record<string, unknown>>; puts?: Array<Record<string, unknown>> } | null;
+      const rows: Row[] = [];
+      for (const kind of ['calls', 'puts'] as const) {
+        for (const it of wrapped?.[kind] ?? []) {
+          rows.push({
+            quote_kind: kind,
+            product: p.product,
+            contract: p.contract,
+            symbol: it.symbol ?? '',
+            buy_volume: it.buyVolume,
+            buy_price: it.buyPrice,
+            price: it.price,
+            ask_price: it.askPrice,
+            ask_volume: it.askVolume,
+            open_interest: it.openInterest,
+            change_amt: it.change,
+            strike_price: it.strikePrice,
+          });
+        }
+      }
+      await dc.putOptionLegs(p.product, p.contract, rows.filter((r) => r.symbol), ttlMs, now);
+      return;
+    }
+    case 'getOptionKline': {
+      const p = args[0] as { kind?: string; code?: string } | undefined;
+      if (!p?.kind || !p.code) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putOptionKlines(
+        p.kind, p.code,
+        list.map((it) => ({
+          kind: p.kind,
+          code: p.code,
+          trade_date: it.date ?? '',
+          open_price: it.open,
+          high_price: it.high,
+          low_price: it.low,
+          close_price: it.close,
+          volume: it.volume,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getOptionCffexQuotes': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putOptionCffex(
+        list.map((it) => ({
+          code: it.code ?? '',
+          name: it.name ?? '',
+          price: it.price,
+          change_amt: it.change,
+          change_pct: it.changePct,
+          volume: it.volume,
+          amount: it.amount,
+          open_interest: it.openInterest,
+          strike_price: it.strikePrice,
+          remain_days: it.remainDays,
+          prev_settle: it.prevSettle,
+          open_price: it.open,
+        })).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getOptionLhb': {
+      const p = args[0] as { symbol?: Symbol; date?: string } | undefined;
+      if (!p?.symbol) return;
+      const date = (p.date ?? todayYmd()).replace(/-/g, '');
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putOptionLhb(
+        date, p.symbol.code,
+        list.map((it) => ({
+          trade_date: date,
+          symbol: p.symbol!.code,
+          target_name: it.targetName ?? '',
+          trade_type: it.tradeType,
+          rank_no: it.rank,
+          member_name: it.memberName ?? '',
+          buy_volume: it.buyVolume,
+          sell_volume: it.sellVolume,
+          net_buy_volume: it.netBuyVolume,
+          buy_volume_ratio: it.buyVolumeRatio,
+          sell_volume_ratio: it.sellVolumeRatio,
+        })).filter((r) => r.member_name),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFuturesKline':
+    case 'getFuturesGlobalKline': {
+      const kind = method === 'getFuturesKline' ? 'domestic' : 'global';
+      const p = args[0] as { code?: string } | undefined;
+      if (!p?.code) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFuturesKlines(
+        kind, p.code,
+        list.map((it) => ({
+          kind,
+          code: p.code,
+          trade_date: it.date ?? '',
+          name: it.name,
+          open_price: it.open,
+          high_price: it.high,
+          low_price: it.low,
+          close_price: it.close,
+          volume: it.volume,
+          amount: it.amount,
+          change_pct: it.changePct,
+          change_amt: it.change,
+          open_interest: it.openInterest,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFuturesGlobalSpot': {
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFuturesSpots(
+        list.map((it) => ({
+          code: it.code ?? '',
+          name: it.name ?? '',
+          price: it.price,
+          change_amt: it.change,
+          change_pct: it.changePct,
+          open_price: it.open,
+          high_price: it.high,
+          low_price: it.low,
+          prev_settle: it.prevSettle,
+          volume: it.volume,
+          open_interest: it.openInterest,
+        })).filter((r) => r.code),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFuturesInventory': {
+      const p = args[0] as { code?: string } | undefined;
+      if (!p?.code) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFuturesInventory(
+        'domestic', p.code,
+        list.map((it) => ({
+          kind: 'domestic',
+          code: p.code,
+          trade_date: it.date ?? '',
+          name: it.name,
+          inventory: it.inventory,
+          change_amt: it.change,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
+      );
+      return;
+    }
+    case 'getFuturesComexInventory': {
+      const p = args[0] as { metal?: string } | undefined;
+      if (!p?.metal) return;
+      const list = (result ?? []) as Array<Record<string, unknown>>;
+      await dc.putFuturesInventory(
+        'comex', p.metal,
+        list.map((it) => ({
+          kind: 'comex',
+          code: p.metal,
+          trade_date: it.date ?? '',
+          name: it.name,
+          storage_ton: it.storageTon,
+          storage_ounce: it.storageOunce,
+        })).filter((r) => r.trade_date),
+        ttlMs, now,
       );
       return;
     }
@@ -1090,10 +2154,9 @@ export async function readThroughCache<M extends DataSourceMethod>(
 
 /** 清理过期缓存（领域表 + method_cache）。 */
 export async function pruneMethodCache(now: number = Date.now()): Promise<number> {
-  const a = await domainCache().pruneExpired(now);
+  const a = await domainCache().pruneAllExpired(now);
   const b = await quantStore().pruneMethodCache(now);
-  const c = await domainCacheV6().pruneExpired(now);
-  return a + b + c;
+  return a + b;
 }
 
 /** 测试辅助：清一条 fallback 缓存 */

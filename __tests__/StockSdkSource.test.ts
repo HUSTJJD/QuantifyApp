@@ -272,21 +272,66 @@ describe('getQuotes（跨市场批量行情）', () => {
     expect(mockSdk.quotes.us).toHaveBeenCalledWith(['AAPL']);
     expect(mockSdk.quotes.fund).toHaveBeenCalledWith(['110011']);
     expect(res).toHaveLength(4);
-    expect(res[0].last).toBe(10.5);
-    expect(res[1].last).toBe(400);
-    expect(res[2].last).toBe(190);
-    expect(res[3].last).toBe(3.5);
+    // 完整字段映射（不只是 last）
+    expect(res[0]).toMatchObject({
+      symbol: { code: '600519', exchange: 'SH' },
+      last: 10.5,
+      prevClose: 10,
+      open: 10.1,
+      high: 11,
+      low: 9.9,
+      volume: 1000,
+      amount: 10500,
+    });
+    expect(res[1]).toMatchObject({
+      symbol: { code: '00700', exchange: 'HK' },
+      last: 400,
+      prevClose: 390,
+      open: 395,
+      high: 405,
+      low: 388,
+      volume: 500,
+      amount: 200000,
+    });
+    expect(res[2]).toMatchObject({
+      symbol: { code: 'AAPL', exchange: 'US' },
+      last: 190,
+      prevClose: 188,
+      open: 189,
+      high: 191,
+      low: 187,
+      volume: 10,
+      amount: 1900,
+    });
+    // 基金：nav → last，accNav → prevClose
+    expect(res[3]).toMatchObject({
+      symbol: { code: '110011', exchange: 'OF' },
+      last: 3.5,
+      prevClose: 4.2,
+    });
   });
   it('空输入返回空数组', async () => {
     const s = new StockSdkSource();
     expect(await s.getQuotes([])).toEqual([]);
   });
-  it('缺失代码不抛错，返回 0 兜底', async () => {
+  it('上游无价格字段时跳过，不伪造 0 价快照', async () => {
     mockSdk.quotes.cn.mockResolvedValue([{ code: '600519' }]);
     const s = new StockSdkSource();
     const res = await s.getQuotes([CN('600519')]);
-    expect(res[0].last).toBe(0);
-    expect(res[0].updatedAt).toBeDefined();
+    expect(res).toHaveLength(0);
+  });
+  it('港股查无数据时跳过，不返回全 0', async () => {
+    mockSdk.quotes.hk.mockResolvedValue([]);
+    const s = new StockSdkSource();
+    const res = await s.getQuotes([HK('00700')]);
+    expect(res).toHaveLength(0);
+  });
+  it('港股代码前导零差异可匹配（700 ↔ 00700）', async () => {
+    mockSdk.quotes.hk.mockResolvedValue([{ code: '700', price: 400, prevClose: 390 }]);
+    const s = new StockSdkSource();
+    const res = await s.getQuotes([HK('00700')]);
+    expect(res).toHaveLength(1);
+    expect(res[0].last).toBe(400);
   });
   it('单市场失败不拖垮整批：cn 失败但 hk 成功时返回 hk 行情（部分成功）', async () => {
     mockSdk.quotes.cn.mockRejectedValue(new Error('CN 行情失败'));

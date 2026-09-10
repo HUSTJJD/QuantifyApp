@@ -4,8 +4,7 @@
  */
 import { MemoryStorageAdapter, setStorage, StorageKeys } from '@/db/storage';
 import { resetQuantStore } from '@/db/QuantStore';
-import { resetDomainCache } from '@/db/DomainCacheStore';
-import { resetDomainCacheV6 } from '@/db/DomainCacheV6';
+import { resetDomainCache } from '@/db/DomainCache';
 import {
   methodCacheKey,
   readThroughCache,
@@ -18,7 +17,6 @@ beforeEach(() => {
   setStorage(new MemoryStorageAdapter());
   resetQuantStore();
   resetDomainCache();
-  resetDomainCacheV6();
 });
 
 const METHODS_WITH_POLICY = Object.keys(METHOD_CACHE_POLICIES) as DataSourceMethod[];

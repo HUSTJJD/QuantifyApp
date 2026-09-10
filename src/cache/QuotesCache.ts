@@ -4,7 +4,7 @@
  * 与 K 线 + 复权因子同一原则：按列建模，不整包 JSON。
  * useQuotes 先秒显缓存，再后台刷新写回。
  */
-import { domainCache } from '@/db/DomainCacheStore';
+import { domainCache } from '@/db/DomainCache';
 import type { Quote, Symbol } from '@/api';
 
 /** 行情快照缓存最大有效年龄（默认 1 天）。 */
@@ -27,8 +27,8 @@ export const QuotesCache = {
     await domainCache().putQuotes(quotes, QUOTES_MAX_AGE_MS);
   },
 
-  /** 过期物理清理。返回清理条数。 */
+  /** 过期物理清理（只清 quote_snapshot，不扫其它领域表）。 */
   async pruneExpired(_ttlMs: number, now: number = Date.now()): Promise<number> {
-    return domainCache().pruneExpired(now);
+    return domainCache().pruneQuoteSnapshot(now);
   },
 };
