@@ -165,3 +165,13 @@ export function volumes(candles: Candle[]): number[] {
 export function closes(candles: Candle[]): number[] {
   return candles.map((c) => c.close);
 }
+
+/** 从 K 线提取最高价序列。 */
+export function highs(candles: Candle[]): number[] {
+  return candles.map((c) => c.high);
+}
+
+/** 从 K 线提取最低价序列。 */
+export function lows(candles: Candle[]): number[] {
+  return candles.map((c) => c.low);
+}

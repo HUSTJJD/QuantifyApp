@@ -122,21 +122,23 @@ export async function syncKlineIncremental(
         await database().saveCandles(symbol, period, candles);
       }
 
-      // 复权因子：随每次同步刷新（本地复权计算底座；失败不阻断 K 线同步）
-      try {
-        const factors = await marketData.getAdjustmentFactors(symbol);
-        if (factors && factors.length > 0) {
-          await store.replaceFactors(t.symbol, factors.map((f) => ({
-            symbol: t.symbol,
-            exDateMs: f.exDateMs,
-            dividendPerShare: f.dividendPerShare ?? null,
-            perShareBonus: f.perShareBonus ?? null,
-            allotmentRatio: f.allotmentRatio ?? null,
-            allotmentPrice: f.allotmentPrice ?? null,
-          })));
+      // 复权因子：仅 A 股个股有分红送转；指数/板块/港股美股无复权因子，跳过
+      if (symbol.exchange === 'SH' || symbol.exchange === 'SZ' || symbol.exchange === 'BJ') {
+        try {
+          const factors = await marketData.getAdjustmentFactors(symbol);
+          if (factors && factors.length > 0) {
+            await store.replaceFactors(t.symbol, factors.map((f) => ({
+              symbol: t.symbol,
+              exDateMs: f.exDateMs,
+              dividendPerShare: f.dividendPerShare ?? null,
+              perShareBonus: f.perShareBonus ?? null,
+              allotmentRatio: f.allotmentRatio ?? null,
+              allotmentPrice: f.allotmentPrice ?? null,
+            })));
+          }
+        } catch (fe) {
+          log.warn?.(`复权因子同步失败 ${t.symbol}`, fe);
         }
-      } catch (fe) {
-        log.warn?.(`复权因子同步失败 ${t.symbol}`, fe);
       }
 
       await store.setSyncState(t.symbol, period, Date.now());

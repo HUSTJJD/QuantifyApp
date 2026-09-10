@@ -341,6 +341,10 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   }
 
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
+    // 指数/板块/港股美股无复权因子
+    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+      return [];
+    }
     const res = await this.guard(
       this.get().aShare.corporateActions.adjustmentFactors({
         thscode: toThsCode(symbol),

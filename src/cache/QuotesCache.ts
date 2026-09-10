@@ -1,33 +1,40 @@
 /**
  * 行情快照本地缓存层（落 SQLite quote_snapshot 领域表）。
  *
- * 与 K 线 + 复权因子同一原则：按列建模，不整包 JSON。
- * useQuotes 先秒显缓存，再后台刷新写回。
+ * 行情实时性强：缓存只用于秒显与失败回退，TTL 必须短。
+ * 旧版 24h 会导致过期价（如港股价停在昨收）长期霸屏。
  */
 import { domainCache } from '@/db/DomainCache';
 import type { Quote, Symbol } from '@/api';
 
-/** 行情快照缓存最大有效年龄（默认 1 天）。 */
-export const QUOTES_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** 行情缓存最大有效年龄：60s */
+export const QUOTES_MAX_AGE_MS = 60_000;
+
+function isValidQuote(q: Quote | undefined | null): q is Quote {
+  return q != null && Number.isFinite(q.last) && q.last !== 0;
+}
 
 export const QuotesCache = {
-  /** 读取缓存；无命中或已过期则返回 null。 */
-  async get(symbols: Symbol[], _maxAgeMs?: number): Promise<Quote[] | null> {
+  /** 读取缓存；无命中、过期或 last=0 则返回 null。 */
+  async get(symbols: Symbol[], maxAgeMs: number = QUOTES_MAX_AGE_MS): Promise<Quote[] | null> {
     if (symbols.length === 0) return null;
-    const map = await domainCache().getQuotes(symbols);
+    const map = await domainCache().getQuotes(symbols, Date.now(), maxAgeMs);
     if (map.size === 0) return null;
-    return symbols
+    const list = symbols
       .map((s) => map.get(`${s.exchange}.${s.code}`))
-      .filter((q): q is Quote => q != null);
+      .filter(isValidQuote);
+    return list.length > 0 ? list : null;
   },
 
-  /** 写回缓存（空数据不写） */
+  /** 写回缓存（空数据 / 0 价不写） */
   async save(symbols: Symbol[], quotes: Quote[]): Promise<void> {
     if (symbols.length === 0 || quotes.length === 0) return;
-    await domainCache().putQuotes(quotes, QUOTES_MAX_AGE_MS);
+    const valid = quotes.filter(isValidQuote);
+    if (valid.length === 0) return;
+    await domainCache().putQuotes(valid, QUOTES_MAX_AGE_MS);
   },
 
-  /** 过期物理清理（只清 quote_snapshot，不扫其它领域表）。 */
+  /** 过期物理清理（只清 quote_snapshot）。 */
   async pruneExpired(_ttlMs: number, now: number = Date.now()): Promise<number> {
     return domainCache().pruneQuoteSnapshot(now);
   },

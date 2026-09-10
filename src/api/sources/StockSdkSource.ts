@@ -419,10 +419,10 @@ export class StockSdkSource extends BaseMarketDataSource {
             }
           }
           if (r == null && list.length === syms.length) r = list[i];
-          // 查无数据：跳过，绝不伪造 0 价快照（0 价会让上层误判为有效行情）
-          if (r == null || (r.price == null && r.last == null && r.nav == null)) {
-            return;
-          }
+          // 查无有效价：跳过，绝不伪造 0 价快照（0 价会让上层误判为有效行情）
+          if (r == null) return;
+          const lastRaw = r.price ?? r.last ?? r.nav;
+          if (lastRaw == null || !Number.isFinite(Number(lastRaw))) return;
           out.push(ns === 'fund' ? mapFundQuote(s, r) : mapQuote(s, r));
         });
       } catch (e) {
@@ -579,8 +579,11 @@ export class StockSdkSource extends BaseMarketDataSource {
     return [];
   }
 
-  /** 复权事件：委托 SDK reference.dividendDetail（分红 / 送转明细） */
+  /** 复权事件：委托 SDK reference.dividendDetail（分红 / 送转明细）。指数/板块无复权 → 空。 */
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
+    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+      return [];
+    }
     const raw: any[] = await this.guard(
       this.sdk.reference.dividendDetail(toSdkCode(symbol)),
       '复权因子失败',
@@ -2330,9 +2333,11 @@ function fmtDate(ms: number): string {
 }
 
 function mapQuote(symbol: Symbol, r: any): Quote {
+  // HK/US 上游字段名可能为 price 或 last；绝不把 prevClose 当成 last
+  const lastRaw = r.price ?? r.last;
   return {
     symbol,
-    last: num(r.price),
+    last: num(lastRaw),
     prevClose: num(r.prevClose),
     open: num(r.open),
     high: num(r.high),

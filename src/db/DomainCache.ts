@@ -367,10 +367,13 @@ export class DomainCacheStore {
     }
   }
 
-  /** 按 symbols 查未过期快照；返回 Map<symbolKey, Quote> */
+  /** 按 symbols 查未过期快照；返回 Map<symbolKey, Quote>。
+   *  @param maxAgeMs 额外按 updated_at 过滤（防止旧 TTL 写入的长缓存霸屏）
+   */
   async getQuotes(
     symbols: Symbol[],
     now = Date.now(),
+    maxAgeMs?: number,
   ): Promise<Map<string, Quote>> {
     const out = new Map<string, Quote>();
     if (symbols.length === 0) return out;
@@ -407,6 +410,10 @@ export class DomainCacheStore {
         }
       }
       if (row) {
+        // 按写入时间再卡一道 maxAge，避免旧 TTL 条目长期有效
+        if (maxAgeMs != null && now - row.updatedAt > maxAgeMs) continue;
+        // last=0 视为无效，不返回
+        if (!Number.isFinite(row.lastPrice) || row.lastPrice === 0) continue;
         out.set(key, {
           symbol: { code: row.code, exchange: row.exchange as Symbol['exchange'] },
           last: row.lastPrice,

@@ -187,7 +187,22 @@ export const STRATEGIES: Strategy[] = [
   breakout,
   bollingerBreakout,
   volumePriceDivergence,
+  // 组合策略：多指标 AND/OR（见 composite.ts）
+  ...compositePresetsAsStrategies(),
 ];
+
+/** 把组合规则模板包装成 Strategy，供信号引擎 / 回测统一调用 */
+function compositePresetsAsStrategies(): Strategy[] {
+  // 延迟 require 避免与 composite 模块循环依赖（composite 只依赖 indicators + strategies 类型）
+  const { evaluateComposite, COMPOSITE_PRESETS } = require('./composite') as typeof import('./composite');
+  return COMPOSITE_PRESETS.map((def) => ({
+    id: def.id,
+    label: def.label,
+    enabledByDefault: false,
+    evaluate: (candles: Candle[], _ctx: StrategyContext): PartialSignal | null =>
+      evaluateComposite(def, candles),
+  }));
+}
 
 export interface StrategyConfig {
   enabled: Record<string, boolean>;

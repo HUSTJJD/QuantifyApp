@@ -166,6 +166,7 @@ async function readDomain(
   method: DataSourceMethod,
   args: unknown[],
   now: number,
+  ttlMs: number,
 ): Promise<unknown | null> {
   const dc = domainCache();
 
@@ -181,7 +182,7 @@ async function readDomain(
           ? [raw as Symbol]
           : [];
       if (symbols.length === 0) return null;
-      const map = await dc.getQuotes(symbols, now);
+      const map = await dc.getQuotes(symbols, now, ttlMs);
       const out = symbols.map((s) => map.get(toFullCode(s))).filter(Boolean) as Quote[];
       return out.length > 0 ? out : null;
     }
@@ -2086,7 +2087,7 @@ export async function readThroughCache<M extends DataSourceMethod>(
   // 1) 领域表读
   if (policy.store === 'domain') {
     try {
-      const hit = await readDomain(method, args as unknown[], now);
+      const hit = await readDomain(method, args as unknown[], now, policy.ttlMs);
       if (hit !== null && hit !== undefined) {
         if (!isEmptyResult(hit) || policy.cacheEmpty) {
           return hit as MethodResult<M>;

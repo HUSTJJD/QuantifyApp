@@ -211,7 +211,7 @@ describe('数据源 - hithsa（同花顺官方 REST，端点契约单测）', ()
     getSpy.mockResolvedValueOnce([{ date: '2024-06-01', dividend_per_share: 1.5, per_share_bonus: 0.5 }]);
     const f = await src.getAdjustmentFactors(A_SHARE, '2024-01-01', '2024-12-31');
     expect(getSpy).toHaveBeenCalledWith('/api/a-share/corporate-actions/adjustment-factors', expect.objectContaining({
-      symbol: '600519.SH',
+      thscodes: '600519.SH',
       from_date: '2024-01-01',
       to_date: '2024-12-31',
     }));

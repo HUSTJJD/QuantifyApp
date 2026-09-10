@@ -67,11 +67,15 @@ describe('indicators', () => {
 });
 
 describe('signals', () => {
-  it('注册了 6 个策略（含新增布林带/量价背离）', () => {
-    expect(STRATEGIES.length).toBe(6);
+  it('注册了 10 个策略（6 单指标 + 4 组合）', () => {
+    expect(STRATEGIES.length).toBe(10);
     const ids = STRATEGIES.map((s) => s.id);
     expect(ids).toContain('bollinger_breakout');
     expect(ids).toContain('volume_price_divergence');
+    expect(ids).toContain('trend_confirm_buy');
+    expect(ids).toContain('macd_trend');
+    expect(ids).toContain('oversold_bounce');
+    expect(ids).toContain('breakout_pullback');
   });
 
   it('上涨趋势产生买入信号（MA金叉）', () => {

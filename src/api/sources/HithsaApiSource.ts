@@ -492,7 +492,12 @@ export class HithsaApiSource extends BaseMarketDataSource {
 
   // ------------------------- 复权因子 -------------------------
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
-    const params: Record<string, string> = { symbol: toThsCode(symbol) };
+    // 指数/板块无分红送转，不请求复权因子
+    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+      return [];
+    }
+    // 契约参数名是 thscodes（复数、逗号分隔），不是 symbol
+    const params: Record<string, string> = { thscodes: toThsCode(symbol) };
     if (from != null) params.from_date = from;
     if (to != null) params.to_date = to;
     const data = await this.guard(
