@@ -18,11 +18,11 @@
  * 读穿：命中未过期直接返回；未命中/过期 → fetch 并异步回写。
  * 写库失败不拖垮主请求；空结果默认不写。
  */
-import { quantStore } from '@/db/QuantStore';
-import { domainCache } from '@/db/DomainCache';
+import { quantStore } from '@/data/db/QuantStore';
+import { domainCache } from '@/data/db/DomainCache';
 import { stableStringify } from './coalesce';
 import type { DataSourceMethod, MethodArgs, MethodResult } from './methods';
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import { toFullCode } from '@/domain/symbol';
 
 function n(v: unknown): number | null {
@@ -183,7 +183,7 @@ async function readDomain(
           : [];
       if (symbols.length === 0) return null;
       const map = await dc.getQuotes(symbols, now, ttlMs);
-      const out = symbols.map((s) => map.get(toFullCode(s))).filter(Boolean) as Quote[];
+      const out = symbols.map((sym) => map.get(toFullCode(sym))).filter(Boolean) as Quote[];
       return out.length > 0 ? out : null;
     }
     case 'getTradingDays': {
@@ -2136,9 +2136,9 @@ export async function readThroughCache<M extends DataSourceMethod>(
     // 领域方法：非空走领域表；空结果且 cacheEmpty 写 method_cache 哨兵
     const useDomain = policy.store === 'domain' && !isEmptyResult(result);
     if (useDomain) {
-      void writeDomain(method, args as unknown[], result, policy.ttlMs, now).catch(() => {});
+      writeDomain(method, args as unknown[], result, policy.ttlMs, now).catch(() => {});
     } else {
-      void quantStore()
+      quantStore()
         .putMethodCache({
           cacheKey: key,
           method,

@@ -1,7 +1,6 @@
 /**
  * MACD 因子：DIF/DEA 交叉 + 柱体方向。
  */
-import type { Candle } from '@/api';
 import { macd, closes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

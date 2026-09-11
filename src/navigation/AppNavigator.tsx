@@ -13,7 +13,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainScreen } from '@/features/home/MainScreen';
@@ -34,7 +34,9 @@ import { TradeScreen } from '@/features/simulation/TradeScreen';
 import { MineScreen } from '@/features/mine/MineScreen';
 import { BacktestScreen } from '@/features/backtest/BacktestScreen';
 import { ScannerScreen } from '@/features/scanner/ScannerScreen';
+import { WorkflowScreen } from '@/features/scanner/WorkflowScreen';
 import { SearchScreen } from '@/features/search/SearchScreen';
+import { AlertRulesScreen } from '@/features/watchlist/AlertRulesScreen';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
@@ -54,7 +56,9 @@ export type RootStackParamList = {
   SourceTest: { sourceId: string };
   Backtest: undefined;
   Scanner: undefined;
+  Workflow: undefined;
   Search: undefined;
+  AlertRules: undefined;
   /** 策略编辑（新建不传 strategyId；删除策略后模板可再次新建） */
   StrategyEdit: { strategyId?: string };
   StrategyBacktest: { strategyId: string };
@@ -169,6 +173,8 @@ function MainTabs(): React.JSX.Element {
               onOpenDebug={() => root?.navigate('DebugLog')}
               onOpenBacktest={() => root?.navigate('Backtest')}
               onOpenScanner={() => root?.navigate('Scanner')}
+              onOpenWorkflow={() => root?.navigate('Workflow')}
+              onOpenAlertRules={() => root?.navigate('AlertRules')}
             />
           );
         }}
@@ -254,6 +260,14 @@ export function AppNavigator(): React.JSX.Element {
           />
         )}
       </Stack.Screen>
+      <Stack.Screen name="Workflow">
+        {({ navigation }: { navigation: RootNav }) => (
+          <WorkflowScreen
+            onBack={() => navigation.goBack()}
+            onOpenDetail={(symbol) => navigation.navigate('Detail', { symbol })}
+          />
+        )}
+      </Stack.Screen>
       <Stack.Screen name="StrategyEdit">
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['StrategyEdit'] } }) => (
           <StrategyEditScreen
@@ -284,6 +298,11 @@ export function AppNavigator(): React.JSX.Element {
             onBack={() => navigation.goBack()}
             onOpenStock={(symbol) => navigation.navigate('Detail', { symbol })}
           />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="AlertRules">
+        {({ navigation }: { navigation: RootNav }) => (
+          <AlertRulesScreen onBack={() => navigation.goBack()} />
         )}
       </Stack.Screen>
     </Stack.Navigator>

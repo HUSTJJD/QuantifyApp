@@ -7,10 +7,10 @@
  *  - triggerSync()：手动触发一轮全市场增量同步（syncDaily）。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { database } from '@/db';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
-import { runBackgroundSync } from '@/sync/scheduler';
-import type { SyncProgress } from '@/sync/MarketSync';
+import { database } from '@/data/db';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
+import { runBackgroundSync } from '@/data/sync/scheduler';
+import type { SyncProgress } from '@/data/sync/MarketSync';
 
 export interface LocalDbStats {
   tickers: number;

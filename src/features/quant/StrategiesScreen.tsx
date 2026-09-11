@@ -5,7 +5,7 @@
  * 快速回测 / 编辑 / 专属模拟盘入口；支持新增策略（内置模板）。
  * 顶部展示策略运行概况与最近的自动交易动态；异动提醒保留（含底部角标）。
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -109,7 +109,7 @@ export function StrategiesScreen({
   );
   const enabledCount = profiles.filter((p) => p.enabled).length;
   const autoCount = profiles.filter((p) => p.enabled && p.autoTrade).length;
-  const events = useMemo(() => recentStrategyEvents().slice(0, 6), [refreshing, profiles]);
+  const events = useMemo(() => recentStrategyEvents().slice(0, 6), []);
 
   const styles = makeStyles(colors);
 

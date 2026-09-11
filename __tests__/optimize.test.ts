@@ -1,7 +1,7 @@
 import { expandGrid, gridSearch, bestParams, scoreOf, type ParamCombo } from '@/quant/optimize';
 import { runBacktest } from '@/quant/backtest';
 import type { Strategy } from '@/quant/strategies';
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 function candle(close: number, i: number): Candle {
   return {

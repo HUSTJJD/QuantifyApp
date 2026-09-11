@@ -4,9 +4,22 @@
  * 此处仅保留可扩展的全局初始化（如清理计时器/关闭连接等）。
  */
 
+// reanimated / gesture-handler：node 测试环境无原生实现
+jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+jest.mock('react-native-gesture-handler', () => {
+  const View = require('react-native').View;
+  return {
+    GestureHandlerRootView: View,
+    GestureDetector: View,
+    Gesture: {
+      Pan: () => ({ enabled: () => ({ onBegin: () => ({ onUpdate: () => ({ onEnd: () => ({}) }) }) }) }),
+    },
+  };
+});
+
 // @op-engineering/op-sqlite：jest 无原生 SQLite 模块，
 // 其顶层 import（NativeModules.OPSQLite）在 node 环境即会抛错。
-// 在 require('@/db')（会 import 到 SqliteKlineAdapter）之前 mock 掉，
+// 在 require('@/data/db')（会 import 到 SqliteKlineAdapter）之前 mock 掉，
 // 使 adapter 可被加载（isSqliteAvailable() 在 jest 下恒 false，
 // 工厂实际仍用 AsyncStorage 引擎，单测行为不变）。
 jest.mock('@op-engineering/op-sqlite', () => {

@@ -1,22 +1,15 @@
 /**
- * API 数据源全量集成测试（真实联网）。
+ * API 数据源测试。
  *
- * 目标：验证各数据源（hithsa / stock-sdk / stock-api / fund-api）接口可用、能拉到真实数据。
- *  - stock-api：npm:stock-api 库纯封装（auto 选源，腾讯为主要上游），无需任何 Key，必跑必过；
- *    仅覆盖个股行情/K线/搜索，不提供指数/盘口/财务/基金；
- *  - stock-sdk：npm 包直连，无需 Key，必跑必过；
- *  - fund-api：npm:fund-api 库纯封装，基金净值/档案/历史，无需 Key；
- *  - hithsa：同花顺官方 REST，需要 API Key。仅在环境变量 HITHSA_API_KEY 存在时
- *    才发起真实请求；否则该组用例自动 skip，避免把"未配置 Key"误判为失败。
+ * - stock-sdk：npm 包直连，无需 Key，真网拉行情（必跑必过）；
+ * - hithsa：mock HTTP 验证端点路由与字段映射（必跑必过，不依赖真实网络 / Key）。
  *
- * 运行：
- *   yarn jest __tests__/MarketDataSources.test.ts
- *   HITHSA_API_KEY=xxx yarn jest __tests__/MarketDataSources.test.ts
+ * 运行：yarn jest __tests__/MarketDataSources.test.ts
  */
-import { StockSdkSource } from '@/api/sources/StockSdkSource';
-import { HithsaApiSource } from '@/api/sources/HithsaApiSource';
-import { HithsaHttpClient } from '@/api/sources/HithsaHttpClient';
-import type { Symbol } from '@/api/types';
+import { StockSdkSource } from '@/data/api/sources/StockSdkSource';
+import { HithsaApiSource } from '@/data/api/sources/HithsaApiSource';
+import { HithsaHttpClient } from '@/data/api/sources/HithsaHttpClient';
+import type { Symbol } from '@/data/api/types';
 
 const A_SHARE: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 const A_INDEX: Symbol = { code: '000001', exchange: 'SH', name: '上证指数' };
@@ -52,37 +45,11 @@ describe('数据源 - stock-sdk（必跑）', () => {
     expect(quotes[0].symbol.exchange).toBe('HK');
     expectValidQuote(quotes[0]);
   }, 20000);
-
-  // 注意：stock-sdk 盘口端点在当前网络环境下返回空 bids/asks（上游未给到五档），
-  // 属上游环境问题（非代码回归），与 K 线端点不可达同理，标记 skip 避免误判失败。
-  const stockSdkOrderBookIt = false ? it : it.skip;
-  stockSdkOrderBookIt('getOrderBook 能拉到五档盘口（上游盘口端点当前返回空，已 skip）', async () => {
-    const ob = await src.getOrderBook(A_SHARE);
-    expect(ob.symbol.code).toBe('600519');
-    expect(Array.isArray(ob.bids)).toBe(true);
-    expect(Array.isArray(ob.asks)).toBe(true);
-    expect(ob.bids.length).toBeGreaterThan(0);
-    expect(ob.bids[0].price).toBeGreaterThan(0);
-  }, 20000);
-
-  // 注意：stock-sdk 的 K 线端点在当前网络环境下返回 "fetch failed / other side closed"
-  // （SDK 内部 hosts 直接断开连接，与代码无关），该用例在 Node 与 RN 下均无法联通。
-  // 为避免把"上游不可达"误判为测试失败，这里标记为 skip。
-  const stockSdkKlineIt = false ? it : it.skip;
-  stockSdkKlineIt('getKline 能拉到日 K（上游 K 线接口当前不可达，已 skip）', async () => {
-    const k = await src.getKline({ symbol: A_SHARE, period: 'day', count: 10 });
-    expect(k.length).toBeGreaterThan(0);
-    expect(k[k.length - 1].close).toBeGreaterThan(0);
-  }, 20000);
 });
 
-// hithsa（同花顺官方 REST 主源）测试。
-//
+// hithsa（同花顺官方 REST）端点契约单测：mock HTTP，验证路由与字段映射。
 // 按 hithink-finance Skill 规则，所有接口复用统一 API Key（HITHINK_FINANCE_API_KEY），
-// 禁止重复定义 / 硬编码。这里通过 mock HithsaHttpClient 验证端点路由与字段映射，
-// 不依赖真实网络；当配置了真实统一 Key 时，额外跑真实集成用例。
-const HITHINK_KEY = process.env.HITHINK_FINANCE_API_KEY;
-const hithsaIntegration = HITHINK_KEY ? describe : describe.skip;
+// 禁止重复定义 / 硬编码。
 
 // ---- 单元：端点路由 + 字段映射（mock HTTP，必跑）----
 describe('数据源 - hithsa（同花顺官方 REST，端点契约单测）', () => {
@@ -208,12 +175,15 @@ describe('数据源 - hithsa（同花顺官方 REST，端点契约单测）', ()
   });
 
   it('getAdjustmentFactors 走 adjustment-factors 端点，参数透传', async () => {
-    getSpy.mockResolvedValueOnce([{ date: '2024-06-01', dividend_per_share: 1.5, per_share_bonus: 0.5 }]);
+    getSpy.mockResolvedValueOnce({
+      thscode: '600519.SH',
+      item: [{ ex_date_ms: 1717190400000, dividend_per_share: 1.5, per_share_bonus: 0.5 }],
+    });
     const f = await src.getAdjustmentFactors(A_SHARE, '2024-01-01', '2024-12-31');
     expect(getSpy).toHaveBeenCalledWith('/api/a-share/corporate-actions/adjustment-factors', expect.objectContaining({
-      thscodes: '600519.SH',
-      from_date: '2024-01-01',
-      to_date: '2024-12-31',
+      thscode: '600519.SH',
+      from: '2024-01-01',
+      to: '2024-12-31',
     }));
     expect(f[0].dividendPerShare).toBe(1.5);
     expect(f[0].perShareBonus).toBe(0.5);
@@ -390,31 +360,4 @@ describe('数据源 - hithsa（同花顺官方 REST，端点契约单测）', ()
     expect(q).toEqual([]);
     expect(getSpy).not.toHaveBeenCalled();
   });
-});
-
-// ---- 集成：配置真实统一 Key 时跑真实联网用例（默认 skip）----
-hithsaIntegration('数据源 - hithsa（同花顺官方 REST，真实联网，需 HITHINK_FINANCE_API_KEY）', () => {
-  let src: HithsaApiSource;
-  beforeAll(() => {
-    HithsaHttpClient.setDefaultKey(HITHINK_KEY);
-    src = new HithsaApiSource(new HithsaHttpClient());
-  });
-
-  it('getQuotes 能拉到 A 股真实行情', async () => {
-    const quotes = await src.getQuotes([A_SHARE]);
-    expect(quotes.length).toBeGreaterThan(0);
-    expectValidQuote(quotes[0]);
-  }, 20000);
-
-  it('getIndexQuotes 能拉到指数真实行情', async () => {
-    const quotes = await src.getIndexQuotes([A_INDEX]);
-    expect(quotes.length).toBeGreaterThan(0);
-    expectValidQuote(quotes[0]);
-  }, 20000);
-
-  it('getKline 能拉到日 K', async () => {
-    const k = await src.getKline({ symbol: A_SHARE, period: 'day', count: 10 });
-    expect(k.length).toBeGreaterThan(0);
-    expect(k[k.length - 1].close).toBeGreaterThan(0);
-  }, 20000);
 });

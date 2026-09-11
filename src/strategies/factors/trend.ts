@@ -1,7 +1,6 @@
 /**
  * 均线排列因子：多头排列偏多、空头排列偏空。
  */
-import type { Candle } from '@/api';
 import { sma, closes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

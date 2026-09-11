@@ -7,7 +7,7 @@
  * 注意：参数优化只在历史数据上有效，存在过拟合风险；本模块仅做"遍历+排序"，
  * 不含样本外验证，业务层应自行做 walk-forward / 区间外校验。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { runBacktest, type BacktestResult, type BacktestOptions } from './backtest';
 import type { Strategy } from './strategies';
 

@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import { toFullCode } from '@/domain';
 import { colors, spacing, fontSize, radius } from '@/theme';
 

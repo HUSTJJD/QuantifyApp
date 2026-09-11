@@ -26,16 +26,17 @@ export interface ColorScheme {
 }
 
 export const DarkColors: ColorScheme = {
-  background: '#0E1116',
-  surface: '#161B22',
-  surfaceAlt: '#1C2230',
-  border: '#2A313C',
-  text: '#E6EDF3',
-  textSecondary: '#8B949E',
+  // Ghostfolio 暗色：更中性的深灰卡片，降低色相噪音
+  background: '#141414',
+  surface: '#1E1E1E',
+  surfaceAlt: '#2A2A2A',
+  border: '#333333',
+  text: '#F2F2F2',
+  textSecondary: 'rgba(255,255,255,0.54)',
   primary: '#E5484D',
   up: '#F5465C',
   down: '#2DCB73',
-  flat: '#8B949E',
+  flat: 'rgba(255,255,255,0.38)',
   success: '#2DCB73',
   warning: '#F5A623',
   info: '#4C9AFF',
@@ -43,16 +44,17 @@ export const DarkColors: ColorScheme = {
 };
 
 export const LightColors: ColorScheme = {
-  background: '#F5F6F8',
+  // Ghostfolio 浅色：#FAFAFA 底 + 纯白卡片
+  background: '#FAFAFA',
   surface: '#FFFFFF',
-  surfaceAlt: '#EEF1F5',
-  border: '#E3E6EB',
-  text: '#1A1F29',
-  textSecondary: '#6B7280',
+  surfaceAlt: '#F0F0F0',
+  border: 'rgba(0,0,0,0.08)',
+  text: 'rgba(0,0,0,0.87)',
+  textSecondary: 'rgba(0,0,0,0.54)',
   primary: '#E5484D',
   up: '#E5484D',
   down: '#16A34A',
-  flat: '#6B7280',
+  flat: 'rgba(0,0,0,0.38)',
   success: '#16A34A',
   warning: '#D97706',
   info: '#2563EB',

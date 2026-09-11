@@ -5,7 +5,7 @@
  * 本文件把 StrategyTemplate 包装成旧引擎可用的 Strategy，
  * 供 SignalEngine / 回测 / 模拟盘统一调用。
  */
-import type { Candle, Quote } from '@/api';
+import type { Candle, Quote } from '@/data/api';
 import { evaluateStrategy } from '@/strategies/engine';
 import { STRATEGY_TEMPLATES, DEFAULT_TEMPLATE_ID } from '@/strategies/templates';
 import type { StrategyTemplate } from '@/strategies/types';
@@ -42,8 +42,18 @@ function templateAsStrategy(tpl: StrategyTemplate): Strategy {
     id: tpl.id,
     label: tpl.label,
     enabledByDefault: tpl.id === DEFAULT_TEMPLATE_ID,
-    evaluate: (candles: Candle[]): PartialSignal | null => {
-      const sig = evaluateStrategy(tpl, candles);
+    evaluate: (candles: Candle[], ctx: StrategyContext): PartialSignal | null => {
+      // ctx.params 为扁平 `factorId.paramKey` 覆盖（来自档案调参）
+      const overrides: Record<string, Record<string, number>> = {};
+      for (const [k, v] of Object.entries(ctx.params ?? {})) {
+        const i = k.indexOf('.');
+        if (i <= 0) continue;
+        const fid = k.slice(0, i);
+        const pk = k.slice(i + 1);
+        if (!overrides[fid]) overrides[fid] = {};
+        overrides[fid][pk] = v;
+      }
+      const sig = evaluateStrategy(tpl, candles, overrides);
       if (!sig) return null;
       return { side: sig.side, reason: sig.reason, strength: sig.strength };
     },

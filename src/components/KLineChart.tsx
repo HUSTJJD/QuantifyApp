@@ -1,50 +1,51 @@
 /**
- * KLineChart —— 基于 native-kline-view 原生 K线组件的 App 级复用封装。
+ * KLineChart —— 多引擎 K 线封装。
  *
- * 特性：
- *  - 直接吃本 App 统一的 Candle[]（来自 useKline）；
- *  - 内置指标计算（MA/BOLL/MACD/KDJ/RSI/WR，由 indicators.ts 提供）；
- *  - 支持主图/副图指标切换、周期自动映射；
- *  - 自动处理 iOS Fabric 下的 View 包裹（参照库示例 renderKLineChart）；
- *  - optionList 以 JSON 字符串传给原生端（库要求）。
+ * 引擎优先级：
+ * 1. react-native-kline-chart（Skia 原生手势，60fps，轻量主图）
+ * 2. @wuba/react-native-echarts + Skia（完整副图指标 / dataZoom）
+ * 3. 占位降级（引擎未就绪 / Jest）
  *
- * 注意：原生组件只能在真机/模拟器渲染，无法在 jest/node 环境出图；
- *   本组件保持纯数据+字符串组装，便于单测 optionList 结构。
+ * 指标与格式化来自 src/charts（移植自 kline-charts-react 纯逻辑）。
  */
 import React, {
+  Component,
+  useEffect,
   useMemo,
   useRef,
-  useCallback,
-  forwardRef,
-  useImperativeHandle,
-  Component,
+  useState,
   type ReactNode,
 } from 'react';
-import { View, Text, StyleSheet, Platform, UIManager, findNodeHandle } from 'react-native';
-import RNKLineView from 'native-kline-view';
-import type { Candle, KlinePeriod } from '@/api';
-import { colors, spacing, fontSize, radius } from '@/theme';
-import { buildOptionList, type MainIndicator, type SubIndicator } from './kline/optionList';
+import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import type { Candle, KlinePeriod } from '@/data/api';
+import { useAppTheme } from '@/theme/ThemeProvider';
+import { getChartTheme } from '@/chart/theme';
+import { buildKlineOption, type SubPaneId } from '@/chart/buildKlineOption';
+import { getMAPeriods } from '@/chart/indicatorMeta';
+import {
+  isEchartsSkiaAvailable,
+  isKlineChartAvailable,
+  probeChartEngines,
+} from '@/charts/availability';
+import { spacing, fontSize, radius } from '@/theme';
 import { logger } from '@/utils/logger';
 
-/**
- * 原生 K线组件偶发崩溃（如原生层 NPE）不应拖垮整个 App。
- * 用 ErrorBoundary 兜住，渲染降级 UI，并把错误写进调试日志。
- */
+export type MainIndicator = 'none' | 'ma' | 'boll';
+export type SubIndicator = 'none' | 'macd' | 'kdj' | 'rsi' | 'wr' | 'volume';
+
+export type KLineEngine = 'kline-chart' | 'echarts-skia' | 'fallback';
+
 class KLineBoundary extends Component<
   { children: ReactNode; height: number },
   { hasError: boolean }
 > {
   state = { hasError: false };
-
   static getDerivedStateFromError() {
     return { hasError: true };
   }
-
   componentDidCatch(error: unknown) {
-    logger.error('KLineChart', `原生K线渲染异常降级: ${String(error)}`);
+    logger.error('KLineChart', `K线渲染异常降级: ${String(error)}`);
   }
-
   render() {
     if (this.state.hasError) {
       return (
@@ -59,154 +60,159 @@ class KLineBoundary extends Component<
 
 export interface KLineChartProps {
   data: Candle[];
-  /** K线周期，用于映射到原生 time 字段 */
   period: KlinePeriod;
   height?: number;
-  /** 主图指标，默认 ma */
   mainIndicator?: MainIndicator;
-  /** 副图指标，默认 macd */
   subIndicator?: SubIndicator;
-  /** 价格精度，默认 2 */
   pricePrecision?: number;
-  /** 暗色主题，默认跟随 App 暗色 */
   isDark?: boolean;
-  /**
-   * 左滑到历史最左边界时触发，用于向数据源请求更早的 K 线（无限左滑到上市首日）。
-   * 返回 Promise<boolean>：true 表示已加载更早数据（还有更多），false 表示已到最早（上市首日）。
-   */
+  maPeriods?: number[];
   onLoadMore?: () => Promise<boolean>;
+  /** 强制指定引擎；默认自动选择 */
+  engine?: KLineEngine | 'auto';
 }
 
-function KLineInner({
-  optionList,
-  height,
-  onLoadMore,
-  innerRef,
-}: {
-  optionList: string;
-  height: number;
-  onLoadMore?: () => Promise<boolean>;
-  innerRef: React.Ref<unknown>;
-}): React.JSX.Element {
-  const ref = useRef<unknown>(null);
-  const loadingRef = useRef(false);
-
-  // 终极防御：若字符串中仍残留 null/NaN（理论上 sanitize 已兜住），不传给原生以免 NPE 闪退，
-  // 并写入调试日志，便于在「设置 → 调试日志」定位真实数据问题。
-  const safeOptionList = useMemo(() => {
-    if (/null|NaN/.test(optionList)) {
-      logger.error('KLineChart', 'optionList 检测到残留 null/NaN，已阻断传给原生层');
-      return '';
-    }
-    return optionList;
-  }, [optionList]);
-
-  // 通过 UIManager 分发原生命令（兼容新架构 Fabric：直接 ref.method 在新架构下不生效）
-  // 注：Flow 类型把 dispatchViewManagerCommand 的 commandID 标成 number，但运行时接受字符串命令名，故用 any 桥接
-  const dispatchCommand = useCallback((command: 'resetLoadMoreEnd' | 'setLoadMoreEnd') => {
-    const node = ref.current as unknown;
-    const handle = node ? findNodeHandle(node as never) : null;
-    if (handle == null) return;
-    (UIManager.dispatchViewManagerCommand as any)(handle, command, []);
-  }, []);
-
-  const handleLoadMoreBegin = useCallback(() => {
-    logger.debug('KLineChart', '[onLoadMoreBegin] 原生事件触发');
-    if (!onLoadMore || loadingRef.current) {
-      logger.debug('KLineChart', '[onLoadMoreBegin] 被忽略', { hasOnLoadMore: !!onLoadMore, loading: loadingRef.current });
-      return;
-    }
-    loadingRef.current = true;
-    Promise.resolve()
-      .then(() => onLoadMore())
-      .catch((e) => {
-        logger.error('KLineChart', `加载更早K线失败: ${String(e)}`);
-        return true; // 失败默认允许再次触发，避免锁死
-      })
-      .then((hasMore) => {
-        loadingRef.current = false;
-        logger.debug('KLineChart', '[onLoadMoreBegin] 结果', { hasMore });
-        if (hasMore) {
-          dispatchCommand('resetLoadMoreEnd');
-        } else {
-          dispatchCommand('setLoadMoreEnd');
-        }
-      });
-  }, [onLoadMore, dispatchCommand]);
-
-  const chart = (
-    <RNKLineView
-      ref={(node: unknown) => {
-        (ref as React.MutableRefObject<unknown>).current = node;
-        if (typeof innerRef === 'function') innerRef(node);
-        else if (innerRef) (innerRef as React.MutableRefObject<unknown>).current = node;
-      }}
-      style={[styles.chart, { height }]}
-      optionList={safeOptionList}
-      onLoadMoreBegin={onLoadMore ? handleLoadMoreBegin : undefined}
-    />
-  );
-
-  // iOS 在 Fabric 下可直接渲染；否则需包 collapsable={false} 的 View 防止测量失效
-  if (typeof globalThis !== 'undefined' && (globalThis as { nativeFabricUIManager?: unknown }).nativeFabricUIManager && Platform.OS === 'ios') {
-    return chart;
+function pickEngine(preferred: KLineEngine | 'auto', needSubPane: boolean): KLineEngine {
+  if (preferred === 'fallback') return 'fallback';
+  if (preferred === 'kline-chart') {
+    return isKlineChartAvailable() ? 'kline-chart' : 'fallback';
   }
-  return (
-    <View style={{ height }} collapsable={false}>
-      <View style={styles.flex} collapsable={false}>
-        <View style={[styles.chartWrap, { height }]} collapsable={false}>
-          {chart}
-        </View>
-      </View>
-    </View>
-  );
+  if (preferred === 'echarts-skia') {
+    return isEchartsSkiaAvailable()
+      ? 'echarts-skia'
+      : isKlineChartAvailable()
+        ? 'kline-chart'
+        : 'fallback';
+  }
+  // auto：有副图（volume/MACD/…）必须走 ECharts；纯主图优先轻量 kline-chart
+  if (needSubPane) {
+    if (isEchartsSkiaAvailable()) return 'echarts-skia';
+    if (isKlineChartAvailable()) return 'kline-chart';
+    return 'fallback';
+  }
+  if (isKlineChartAvailable()) return 'kline-chart';
+  if (isEchartsSkiaAvailable()) return 'echarts-skia';
+  return 'fallback';
 }
 
-export const KLineChart = forwardRef<KLineChartHandle, KLineChartProps>((props: KLineChartProps, ref) => {
-  const {
-    data,
-    period,
-    height = 260,
-    mainIndicator = 'ma',
-    subIndicator = 'macd',
-    pricePrecision = 2,
-    isDark = true,
-    onLoadMore,
-  } = props;
-  const optionList = useMemo(() => {
-    if (!data || data.length === 0) return '';
-    return buildOptionList(data, {
-      period,
-      main: mainIndicator,
-      sub: subIndicator,
-      pricePrecision,
-      isDark,
+function toNativeCandles(data: Candle[]) {
+  return data.map((c) => ({
+    time: typeof c.datetime === 'number' ? c.datetime : new Date(c.datetime).getTime(),
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+  }));
+}
+
+export const KLineChart = ({
+  data,
+  period: _period,
+  height = 320,
+  mainIndicator = 'ma',
+  subIndicator = 'volume',
+  isDark,
+  maPeriods,
+  engine: engineProp = 'auto',
+}: KLineChartProps): React.JSX.Element => {
+  const { mode } = useAppTheme();
+  const theme = getChartTheme(isDark === false ? 'light' : isDark === true ? 'dark' : mode);
+  const { width: winW } = useWindowDimensions();
+  const [boxW, setBoxW] = useState(0);
+  const width = Math.max(280, Math.floor(boxW || winW - spacing.lg * 2));
+  const chartRef = useRef<any>(null);
+  const echartsRef = useRef<any>(null);
+
+  const needSubPane = subIndicator !== 'none' && subIndicator !== undefined;
+  const [engineReady, setEngineReady] = useState(false);
+  const [engine, setEngine] = useState<KLineEngine>('fallback');
+  /** SkiaChart 已挂载（ECharts 宿主就绪） */
+  const [skiaHostReady, setSkiaHostReady] = useState(false);
+
+  // 异步探测：有副图时必须探测 echarts
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await probeChartEngines({ includeEcharts: needSubPane });
+      if (cancelled) return;
+      // 副图需要 echarts 但首次未探到时再探一次
+      if (needSubPane && !isEchartsSkiaAvailable()) {
+        await probeChartEngines({ includeEcharts: true });
+      }
+      if (cancelled) return;
+      setSkiaHostReady(false);
+      setEngine(pickEngine(engineProp, needSubPane));
+      setEngineReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [engineProp, needSubPane]);
+
+  const option = useMemo(() => {
+    if (engine !== 'echarts-skia') return null;
+    if (!data || data.length === 0) return null;
+    return buildKlineOption({
+      data,
+      theme,
+      height,
+      showMA: mainIndicator === 'ma' || mainIndicator === 'boll',
+      showBOLL: mainIndicator === 'boll',
+      maPeriods: getMAPeriods(maPeriods),
+      sub: (subIndicator === 'none' ? 'none' : (subIndicator as SubPaneId)) ?? 'volume',
     });
-  }, [data, period, mainIndicator, subIndicator, pricePrecision, isDark]);
+  }, [data, theme, height, mainIndicator, subIndicator, maPeriods, engine]);
 
-  const innerRef = useRef<unknown>(null);
+  const nativeCandles = useMemo(
+    () => (engine === 'kline-chart' ? toNativeCandles(data ?? []) : null),
+    [engine, data],
+  );
 
-  /**
-   * 数据集替换时强制重挂载原生图表，规避 fujianlian/klinechart 的越界崩溃：
-   * Android BaseKLineChartView 内部会保留上一次数据集的 mStartIndex（如长序列停在
-   * 右端时 ≈ count - visibleCount），直接换入更短的数据（如日K 数百根 → 周K 几十根）
-   * 而不重建实例，onDraw 会用旧索引访问新列表 → IndexOutOfBoundsException（闪退）。
-   * 用 key 随「周期 + 条数」变化触发卸载重建，让原生在 onCreate 用新数据重算索引。
-   * 分时(1m)有左滑加载更多（条数只增不减），保持稳定 key 以保留滚动位置。
-   */
-  const nativeKey = period === '1m' ? '1m' : `${period}:${data ? data.length : 0}`;
-
-  const dispatchToNative = useCallback((command: 'resetLoadMoreEnd' | 'setLoadMoreEnd') => {
-    const node = innerRef.current as unknown;
-    const handle = node ? findNodeHandle(node as never) : null;
-    if (handle == null) return;
-    (UIManager.dispatchViewManagerCommand as any)(handle, command, []);
-  }, []);
-
-  useImperativeHandle(ref, () => ({
-    resetLoadMoreEnd: () => dispatchToNative('resetLoadMoreEnd'),
-    setLoadMoreEnd: () => dispatchToNative('setLoadMoreEnd'),
-  }), [dispatchToNative]);
+  // ECharts/Skia 引擎初始化（等 SkiaChart 挂好再 init）
+  useEffect(() => {
+    if (engine !== 'echarts-skia' || !option || !skiaHostReady || !chartRef.current) return;
+    let disposed = false;
+    (async () => {
+      try {
+        const echarts = await import('echarts/core');
+        const { CandlestickChart, LineChart, BarChart } = await import('echarts/charts');
+        const {
+          GridComponent,
+          TooltipComponent,
+          DataZoomComponent,
+          AxisPointerComponent,
+        } = await import('echarts/components');
+        const { SkiaRenderer } = await import('@wuba/react-native-echarts/skiaChart');
+        echarts.use([
+          CandlestickChart,
+          LineChart,
+          BarChart,
+          GridComponent,
+          TooltipComponent,
+          DataZoomComponent,
+          AxisPointerComponent,
+          SkiaRenderer,
+        ]);
+        if (disposed || !chartRef.current) return;
+        echartsRef.current?.dispose?.();
+        const chart = echarts.init(chartRef.current, undefined, {
+          // @ts-expect-error skia renderer
+          renderer: 'skia',
+          width,
+          height,
+        });
+        chart.setOption(option);
+        echartsRef.current = chart;
+      } catch (e) {
+        logger.error('KLineChart', `ECharts init 失败: ${String(e)}`);
+      }
+    })();
+    return () => {
+      disposed = true;
+      echartsRef.current?.dispose?.();
+      echartsRef.current = null;
+    };
+  }, [engine, option, width, height, skiaHostReady]);
 
   if (!data || data.length === 0) {
     return (
@@ -216,30 +222,183 @@ export const KLineChart = forwardRef<KLineChartHandle, KLineChartProps>((props: 
     );
   }
 
+  if (engine === 'fallback') {
+    return (
+      <View style={[styles.empty, { height }]}>
+        <Text style={styles.hint}>
+          {engineReady ? '图表引擎未就绪' : '图表加载中…'}
+        </Text>
+        {engineReady ? (
+          <Text style={styles.subHint}>原生 Skia/worklets 不可用，已降级</Text>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <KLineBoundary height={height}>
-      <KLineInner
-        key={nativeKey}
-        optionList={optionList}
-        height={height}
-        onLoadMore={onLoadMore}
-        innerRef={innerRef}
-      />
+      <View
+        style={[styles.wrap, { height, width }]}
+        onLayout={(e) => {
+          const w = Math.floor(e.nativeEvent.layout.width);
+          if (w > 0 && Math.abs(w - boxW) > 1) setBoxW(w);
+        }}
+      >
+        {engine === 'kline-chart' ? (
+          <NativeKlinePane
+            candles={nativeCandles!}
+            width={width}
+            height={height}
+            theme={theme}
+            showMA={mainIndicator !== 'none'}
+            maPeriods={getMAPeriods(maPeriods)}
+          />
+        ) : (
+          <EchartsSkiaPane
+            chartRef={chartRef}
+            width={width}
+            height={height}
+            onReady={() => setSkiaHostReady(true)}
+          />
+        )}
+      </View>
     </KLineBoundary>
   );
-});
+};
+
+/** ECharts Skia 宿主：必须挂 SkiaChart，普通 View 会 setZrenderId 失败 */
+function EchartsSkiaPane({
+  chartRef,
+  width,
+  height,
+  onReady,
+}: {
+  chartRef: React.MutableRefObject<any>;
+  width: number;
+  height: number;
+  onReady?: () => void;
+}): React.JSX.Element {
+  const [SkiaChart, setSkiaChart] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
+  const readyRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const m = await import('@wuba/react-native-echarts/skiaChart');
+        // 该子路径是 default export
+        const comp = (m as any).default ?? (m as any).SkiaChart;
+        if (!cancelled) setSkiaChart(() => comp);
+      } catch (e) {
+        logger.error('KLineChart', `SkiaChart 加载失败: ${String(e)}`);
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (SkiaChart && !readyRef.current && chartRef.current) {
+      readyRef.current = true;
+      onReady?.();
+    }
+  }, [SkiaChart, chartRef, onReady]);
+
+  if (failed || !SkiaChart) {
+    return (
+      <View style={[styles.empty, { height }]}>
+        <Text style={styles.hint}>{failed ? 'ECharts 引擎加载失败' : '加载中…'}</Text>
+      </View>
+    );
+  }
+  return <SkiaChart ref={chartRef} style={{ width, height }} />;
+}
+
+/** react-native-kline-chart 内联封装（懒加载，避免顶层 require 炸树） */
+function NativeKlinePane({
+  candles,
+  width,
+  height,
+  theme,
+  showMA,
+  maPeriods,
+}: {
+  candles: Array<{ time: number; open: number; high: number; low: number; close: number }>;
+  width: number;
+  height: number;
+  theme: ReturnType<typeof getChartTheme>;
+  showMA: boolean;
+  maPeriods: number[];
+}): React.JSX.Element {
+  const [mod, setMod] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const m = await import('react-native-kline-chart');
+        if (!cancelled) setMod(m);
+      } catch (e) {
+        logger.error('KLineChart', `kline-chart 加载失败: ${String(e)}`);
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (failed || !mod) {
+    return (
+      <View style={[styles.empty, { height }]}>
+        <Text style={styles.hint}>{failed ? 'K线引擎加载失败' : '加载中…'}</Text>
+      </View>
+    );
+  }
+
+  const { KlineChart } = mod;
+  return (
+    <KlineChart
+      data={candles}
+      width={width}
+      height={height}
+      bullishColor={theme.up}
+      bearishColor={theme.down}
+      backgroundColor={theme.background}
+      gridColor={theme.gridLine}
+      textColor={theme.textSecondary}
+      crosshairColor={theme.crosshair}
+      showMA={showMA}
+      maPeriods={maPeriods.slice(0, 4)}
+      maColors={theme.maColors}
+    />
+  );
+}
 
 export interface KLineChartHandle {
-  /** 历史数据加载完成后，通知原生结束「加载更多」转圈并恢复交互 */
   resetLoadMoreEnd: () => void;
-  /** 确认已无更早历史（已到上市首日），彻底关闭加载更多 */
   setLoadMoreEnd: () => void;
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  chart: { flex: 1, backgroundColor: 'transparent' },
-  chartWrap: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md },
+  wrap: { overflow: 'hidden', borderRadius: radius.md, alignSelf: 'stretch' },
   empty: { alignItems: 'center', justifyContent: 'center' },
-  hint: { color: colors.textSecondary, fontSize: fontSize.sm, paddingVertical: spacing.md, textAlign: 'center' },
+  hint: {
+    color: '#888',
+    fontSize: fontSize.sm,
+    paddingVertical: spacing.md,
+    textAlign: 'center',
+  },
+  subHint: {
+    color: '#666',
+    fontSize: fontSize.xs,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+  },
 });
+
+export default KLineChart;

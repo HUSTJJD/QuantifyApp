@@ -11,7 +11,7 @@ import { Text, View } from 'react-native';
 import { SectorBoard } from '@/features/home/SectorBoard';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
-jest.mock('@/api', () => ({
+jest.mock('@/data/api', () => ({
   marketData: {
     listIndices: jest.fn().mockResolvedValue([
       { symbol: { code: '881121', exchange: 'TI' }, name: '半导体' },

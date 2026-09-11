@@ -1,8 +1,8 @@
 /**
  * ApiStabilityStats 单元测试：验证统计聚合逻辑（成功率/延迟/覆盖度/失败原因/评分/排序）。
  */
-import { ApiStabilityStats } from '@/api/ApiStabilityStats';
-import { DataSourceError } from '@/api/MarketDataSource';
+import { ApiStabilityStats } from '@/data/api/ApiStabilityStats';
+import { DataSourceError } from '@/data/api/MarketDataSource';
 
 describe('ApiStabilityStats', () => {
   let stats: ApiStabilityStats;
@@ -20,7 +20,7 @@ describe('ApiStabilityStats', () => {
     stats.success('stock-api', 'getQuotes', ctx);
     stats.success('stock-api', 'getQuotes', stats.begin('stock-api', 'getQuotes'));
 
-    const ctx2 = stats.begin('stock-sdk', 'getQuotes');
+    stats.begin('stock-sdk', 'getQuotes');
     stats.failure('stock-sdk', 'getQuotes', new DataSourceError('A股行情失败', 'stock-sdk'));
 
     const s = stats.getStat('stock-api')!;
@@ -40,8 +40,8 @@ describe('ApiStabilityStats', () => {
     stats.success('hithsa', 'getQuotes', stats.begin('hithsa', 'getQuotes'));
     stats.failure('hithsa', 'getKline', new DataSourceError('缺能力', 'hithsa'));
     const s = stats.getStat('hithsa')!;
-    expect(s.methodsOk['getQuotes']).toBe(true);
-    expect(s.methodsOk['getKline']).toBeUndefined();
+    expect(s.methodsOk.getQuotes).toBe(true);
+    expect(s.methodsOk.getKline).toBeUndefined();
   });
 
   it('评分：无尝试为 0；全成功且全覆盖为 100', () => {

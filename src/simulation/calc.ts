@@ -1,7 +1,7 @@
 /**
  * 模拟盘资产计算：基于持仓 + 当前行情快照，实时计算市值、盈亏。
  */
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import type { SimAccount, SimPosition, PortfolioSummary } from './types';
 import { round2 } from './engine';
 

@@ -7,7 +7,7 @@
  *  - 业务层通过本类读写，不直接写 SQL。
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import { getSqlite } from './connection';
 import { toFullCode } from '@/domain/symbol';
 
@@ -117,6 +117,26 @@ export interface FollowedSignalRow {
   createdAt: number;
 }
 
+export interface ScanSnapshotRow {
+  id?: number;
+  criteria: string;
+  total: number;
+  hitCount: number;
+  durationMs: number;
+  createdAt: number;
+}
+
+export interface ScanHitRow {
+  snapshotId?: number;
+  code: string;
+  exchange: string;
+  name: string;
+  reasons: string;
+  lastClose: number;
+  changePct: number | null;
+  metrics: string;
+}
+
 /* ------------------------------ 内存回落 ------------------------------ */
 
 class MemMaps {
@@ -128,6 +148,8 @@ class MemMaps {
   simOrder = new Map<string, SimOrderRow>();
   simTrade = new Map<string, SimTradeRow>();
   followed = new Map<string, FollowedSignalRow>();
+  scanSnapshot = new Map<number, ScanSnapshotRow & { id: number }>();
+  scanHit = new Map<string, ScanHitRow & { snapshotId: number }>();
 }
 const mem = new MemMaps();
 
@@ -189,6 +211,18 @@ export class QuantStore {
       return n;
     }
     const res = await db.execute('DELETE FROM method_cache WHERE expires_at < ?', [now]);
+    return res.rowsAffected ?? 0;
+  }
+
+  /** 清空全部方法缓存（设置页「清理缓存」用） */
+  async clearAllMethodCache(): Promise<number> {
+    const db = await this.db();
+    if (!db) {
+      const n = mem.methodCache.size;
+      mem.methodCache.clear();
+      return n;
+    }
+    const res = await db.execute('DELETE FROM method_cache');
     return res.rowsAffected ?? 0;
   }
 
@@ -588,6 +622,76 @@ export class QuantStore {
     });
   }
 
+  // ---------- scan_snapshot / scan_hit ----------
+
+  async saveScanSnapshot(row: ScanSnapshotRow, hits: ScanHitRow[]): Promise<number> {
+    const db = await this.db();
+    if (!db) {
+      const id = mem.scanSnapshot.size + 1;
+      mem.scanSnapshot.set(id, { ...row, id });
+      for (const h of hits) mem.scanHit.set(`${id}_${h.code}_${h.exchange}`, { snapshotId: id, ...h });
+      return id;
+    }
+    const res = await db.execute(
+      `INSERT INTO scan_snapshot (criteria, total, hit_count, duration_ms, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [row.criteria, row.total, row.hitCount, row.durationMs, row.createdAt],
+    );
+    const id = Number(res.insertId ?? 0);
+    for (const h of hits) {
+      await db.execute(
+        `INSERT OR REPLACE INTO scan_hit (snapshot_id, code, exchange, name, reasons, last_close, change_pct, metrics)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, h.code, h.exchange, h.name, h.reasons, h.lastClose, h.changePct, h.metrics],
+      );
+    }
+    return id;
+  }
+
+  async listScanSnapshots(limit = 20): Promise<ScanSnapshotRow[]> {
+    const db = await this.db();
+    if (!db) return [...mem.scanSnapshot.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+    const res = await db.execute(
+      'SELECT * FROM scan_snapshot ORDER BY created_at DESC LIMIT ?',
+      [limit],
+    );
+    return (res.rows ?? []).map((r) => {
+      const row = r as Record<string, Scalar>;
+      return {
+        id: num(row.id),
+        criteria: String(row.criteria),
+        total: num(row.total),
+        hitCount: num(row.hit_count),
+        durationMs: num(row.duration_ms),
+        createdAt: num(row.created_at),
+      };
+    });
+  }
+
+  async listScanHits(snapshotId: number): Promise<ScanHitRow[]> {
+    const db = await this.db();
+    if (!db) {
+      return [...mem.scanHit.values()].filter((h) => h.snapshotId === snapshotId);
+    }
+    const res = await db.execute(
+      'SELECT * FROM scan_hit WHERE snapshot_id = ?',
+      [snapshotId],
+    );
+    return (res.rows ?? []).map((r) => {
+      const row = r as Record<string, Scalar>;
+      return {
+        snapshotId: num(row.snapshot_id),
+        code: String(row.code),
+        exchange: String(row.exchange),
+        name: String(row.name),
+        reasons: String(row.reasons),
+        lastClose: num(row.last_close),
+        changePct: row.change_pct == null ? null : num(row.change_pct),
+        metrics: String(row.metrics),
+      };
+    });
+  }
+
   // ---------- 测试辅助 ----------
 
   /** 仅测试：重置内存回落状态 */
@@ -600,6 +704,8 @@ export class QuantStore {
     mem.simOrder.clear();
     mem.simTrade.clear();
     mem.followed.clear();
+    mem.scanSnapshot.clear();
+    mem.scanHit.clear();
   }
 }
 

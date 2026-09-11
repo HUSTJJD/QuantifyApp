@@ -112,12 +112,11 @@ class Logger {
 
   /** 派生模块作用域日志器（tag 固化为 scope；复用同一缓冲与级别开关） */
   withScope(scope: string): ScopedLogger {
-    const self = this;
     return {
-      debug: (message, extra) => self.emit('debug', scope, message, extra),
-      info: (message, extra) => self.emit('info', scope, message, extra),
-      warn: (message, extra) => self.emit('warn', scope, message, extra),
-      error: (message, extra) => self.emit('error', scope, message, extra),
+      debug: (message, extra) => this.emit('debug', scope, message, extra),
+      info: (message, extra) => this.emit('info', scope, message, extra),
+      warn: (message, extra) => this.emit('warn', scope, message, extra),
+      error: (message, extra) => this.emit('error', scope, message, extra),
     };
   }
 

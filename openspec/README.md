@@ -19,12 +19,18 @@ openspec/
     └── signal-to-trade-loop/spec.md    ③ 扫描→信号→模拟→跟单闭环
 ```
 
+外部参考项目（stock-sdk / stock-dashboard / kline-charts-react / ghostfolio / react-native-graph / OpenStock）见 `docs/references/REFERENCE_PROJECTS.md`。
+
 ## 开发顺序建议
 
-| 阶段 | 变更 | 产出 |
-|---|---|---|
-| 1 | strategy-maturity | 策略可配置、信号可解释、风控闭环 |
-| 2 | backtest-trust | 回测数字可信，参数扫描可用 |
-| 3 | signal-to-trade-loop | 端到端量化工作流 |
+| 阶段 | 变更 | 产出 | 状态 |
+|---|---|---|---|
+| 1 | strategy-maturity | 策略可配置、信号可解释、风控闭环 | 已交付 |
+| 2 | backtest-trust | 回测数字可信，参数扫描可用 | 已交付 |
+| 3 | signal-to-trade-loop | 端到端量化工作流 | 已交付 |
+| 4 | 盯盘告警完善 | 价格/指标/策略信号 + 规则管理 | 已交付 |
+| 5 | 组合净值 | 日更快照 + 归因 + 净值指标 | 已交付 |
+
+下一阶段主攻见 `project.md`：系统推送、复权回测入链路、组合归因增强。
 
 每阶段完成后：更新对应 `specs/*/spec.md` 的验收勾选，并补单测。

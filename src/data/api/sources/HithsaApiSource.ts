@@ -45,7 +45,6 @@ import type {
   LimitUpStock,
   ListResult,
   OrderBook,
-  ProfitForecast,
   Quote,
   SearchParams,
   Symbol,
@@ -59,7 +58,7 @@ import type {
   IndicatorsParams,
 } from '../types';
 import { HithsaHttpClient } from './HithsaHttpClient';
-import { toThsCode, fromThsCode, marketOf, parseSymbol } from '@/domain/symbol';
+import { toThsCode, fromThsCode, marketOf, parseSymbol, isIndexSymbol } from '@/domain/symbol';
 import { cleanCandles } from '../candleValidity';
 import { register } from '../DataSourceRegistry';
 
@@ -280,9 +279,15 @@ export class HithsaApiSource extends BaseMarketDataSource {
     return items.map(toInstrument);
   }
 
-  async listTickers(): Promise<Instrument[]> {
+  async listTickers(opts?: { exchange?: Exchange; assetType?: AssetType; limit?: number; offset?: number }): Promise<Instrument[]> {
+    const params: Record<string, string> = {
+      exchange: opts?.exchange ?? 'SH,SZ',
+      limit: String(opts?.limit ?? 1000),
+      offset: String(opts?.offset ?? 0),
+    };
+    if (opts?.assetType) params.asset_type = opts.assetType;
     const q = await this.guard(
-      this.client.get<any>('/api/meta/tickers/list', { exchange: 'SH,SZ', limit: '1000', offset: '0' }),
+      this.client.get<any>('/api/meta/tickers/list', params),
       '同花顺标的列表失败',
     );
     const items = q?.item ?? q ?? [];
@@ -379,7 +384,9 @@ export class HithsaApiSource extends BaseMarketDataSource {
     );
     const items = data?.item ?? data ?? [];
     if (!Array.isArray(items) || items.length === 0) {
-      throw new DataSourceError('同花顺个股K线返回为空', SOURCE_ID, 3004);
+      // 官方源对该标的暂无历史 K 线（新股/北交所覆盖缺口等）——返回空，
+      // 由 SourceRouter 继续尝试兜底源；全部为空时上层展示「暂无数据」而非报错。
+      return [];
     }
     const candles = cleanCandles(
       items.map((d: any) => ({
@@ -392,9 +399,6 @@ export class HithsaApiSource extends BaseMarketDataSource {
         amount: num(d.turnover) ?? undefined,
       })),
     );
-    if (candles.length === 0) {
-      throw new DataSourceError('同花顺个股K线清洗后无有效数据', SOURCE_ID, 3004);
-    }
     return candles;
   }
 
@@ -492,23 +496,31 @@ export class HithsaApiSource extends BaseMarketDataSource {
 
   // ------------------------- 复权因子 -------------------------
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
-    // 指数/板块无分红送转，不请求复权因子
-    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+    // 指数/板块/港美股无分红送转，不请求个股 corporate-actions 端点
+    if (isIndexSymbol(symbol) || symbol.exchange === 'HK' || symbol.exchange === 'US') {
       return [];
     }
-    // 契约参数名是 thscodes（复数、逗号分隔），不是 symbol
-    const params: Record<string, string> = { thscodes: toThsCode(symbol) };
-    if (from != null) params.from_date = from;
-    if (to != null) params.to_date = to;
-    const data = await this.guard(
-      this.client.get<any>('/api/a-share/corporate-actions/adjustment-factors', params),
-      '同花顺复权因子失败',
-    );
-    if (!Array.isArray(data)) return [];
-    return data.map((d: any) => ({
+    // 契约（endpoints-prices.md §3）：thscode（单数、不接受逗号）+ from/to（YYYY-MM-DD）
+    const params: Record<string, string> = { thscode: toThsCode(symbol) };
+    if (from != null) params.from = from;
+    if (to != null) params.to = to;
+    let data: any;
+    try {
+      data = await this.guard(
+        this.client.get<any>('/api/a-share/corporate-actions/adjustment-factors', params),
+        '同花顺复权因子失败',
+      );
+    } catch (e) {
+      // 上市以来无分红送转：官方源报 "No adjustment events"，属正常空结果
+      const m = e instanceof Error ? e.message : String(e);
+      if (/No adjustment events|empty|无复权/i.test(m)) return [];
+      throw e;
+    }
+    const items: any[] = Array.isArray(data) ? data : ((data?.item ?? []) as any[]);
+    return items.map((d: any) => ({
       symbol,
-      ticker: fromThsCode(d.thscode ?? toThsCode(symbol)).code,
-      exDateMs: toMs(d.date ?? d.ex_date),
+      ticker: fromThsCode(d.ticker ?? d.thscode ?? toThsCode(symbol)).code,
+      exDateMs: toMs(d.ex_date_ms ?? d.date ?? d.ex_date),
       dividendPerShare: num(d.dividend_per_share ?? d.dividend) ?? 0,
       perShareBonus: num(d.per_share_bonus ?? d.bonus) ?? 0,
     }));
@@ -880,21 +892,30 @@ export class HithsaApiSource extends BaseMarketDataSource {
       '同花顺涨停池失败',
     );
     const items = Array.isArray(data) ? data : data?.item ?? [];
+    const mapped = items.map((d: any) => ({
+      symbol: fromThsCode(d.thscode ?? d.symbol),
+      name: d.name,
+      isSt: Boolean(d.is_st),
+      isNew: Boolean(d.is_new),
+      lastPrice: num(d.last_price ?? d.price) ?? 0,
+      changePct: num(d.price_change_ratio_pct ?? d.change_pct) ?? 0,
+      limitUpTime: d.limit_up_time ?? d.time ?? '',
+      limitUpReason: d.limit_up_reason ?? d.reason ?? '',
+      continueDayText: d.continue_day_text ?? '',
+      continueDayCnt: num(d.continue_day_cnt ?? d.board_days) ?? 0,
+      sealMoney: num(d.seal_money) ?? 0,
+      maxSealMoney: num(d.max_seal_money) ?? 0,
+    }));
+    const total = num((data as any)?.total) ?? mapped.length;
+    const size = opts?.size ?? Math.max(mapped.length, 1);
     return {
-      items: items.map((d: any) => ({
-        symbol: fromThsCode(d.thscode ?? d.symbol),
-        name: d.name,
-        isSt: Boolean(d.is_st),
-        isNew: Boolean(d.is_new),
-        lastPrice: num(d.last_price ?? d.price) ?? 0,
-        changePct: num(d.price_change_ratio_pct ?? d.change_pct) ?? 0,
-        limitUpTime: d.limit_up_time ?? d.time ?? '',
-        limitUpReason: d.limit_up_reason ?? d.reason ?? '',
-        continueDayText: d.continue_day_text ?? '',
-        continueDayCnt: num(d.continue_day_cnt ?? d.board_days) ?? 0,
-        sealMoney: num(d.seal_money) ?? 0,
-        maxSealMoney: num(d.max_seal_money) ?? 0,
-      })),
+      items: mapped,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size,
+        pages: Math.max(1, Math.ceil(total / size)),
+      },
     };
   }
 

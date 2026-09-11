@@ -5,7 +5,7 @@
 import { submitOrder, calcFee, roundShare, settleOvernight, reconcile, DEFAULT_INIT_CASH } from '@/simulation/engine';
 import { summarize, positionPnl } from '@/simulation/calc';
 import type { SimAccount } from '@/simulation';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 

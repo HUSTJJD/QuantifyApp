@@ -9,7 +9,7 @@
  *
  * 约定：
  *  - 符号 string 是一等公民（'sh600519' / '600519' / '00700' / 'AAPL'），由 normalizeSymbol 容错解析；
- *  - computeIndicators / computeSignals 接收业务层 Candle[]（见 @/api/types），先归一化为 SDK 的 Kline 结构；
+ *  - computeIndicators / computeSignals 接收业务层 Candle[]（见 @/data/api/types），先归一化为 SDK 的 Kline 结构；
  *  - 需要对象 hint 时，请先使用本模块的 normalizeSymbol。
  */
 import {
@@ -67,8 +67,8 @@ export {
   backtest,
 };
 
-import type { Candle, Symbol } from '@/api/types';
-import { isValidCandle } from '@/api/candleValidity';
+import type { Candle, Symbol } from '@/data/api/types';
+import { isValidCandle } from '@/data/api/candleValidity';
 
 /**
  * 业务层 Candle 归一化为 stock-sdk 的 HistoryKline 输入结构。

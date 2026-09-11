@@ -2,7 +2,7 @@
  * 组合策略引擎单测：多指标 AND/OR、交叉、量比、预置模板。
  */
 import { evaluateComposite, buildSnapshot, evalCondition, COMPOSITE_PRESETS } from '@/quant/composite';
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 function mk(closes: number[], vols?: number[]): Candle[] {
   return closes.map((c, i) => ({

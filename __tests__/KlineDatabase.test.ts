@@ -2,10 +2,10 @@
  * K 线数据库机制单测（基于 AsyncStorage 临时引擎 + 内存热索引）。
  * 验证行级 upsert 去重、增量合并、区间查询、热索引命中、跨标的/跨周期隔离。
  */
-import { database, resetDatabase, KLINE_MAX_ROWS_PER_SERIES } from '@/db';
-import { KlineDatabase } from '@/db/KlineDatabase';
-import { AsyncStorageKlineAdapter } from '@/db/AsyncStorageKlineAdapter';
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import { database, resetDatabase, KLINE_MAX_ROWS_PER_SERIES } from '@/data/db';
+import { KlineDatabase } from '@/data/db/KlineDatabase';
+import { AsyncStorageKlineAdapter } from '@/data/db/AsyncStorageKlineAdapter';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
 const SYM: Symbol = { exchange: 'SH', code: '600519' };
 const PERIOD: KlinePeriod = 'day';

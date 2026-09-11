@@ -6,10 +6,10 @@
  * 不依赖任何网络/存储，全部可单测。
  */
 
-import type { NewsItem, AnnouncementItem } from '@/api/types';
+import type { NewsItem, AnnouncementItem } from '@/data/api/types';
 
 // re-export：供消费方（如 __tests__/news.test.ts）从本源引用统一类型
-export type { NewsItem, AnnouncementItem } from '@/api/types';
+export type { NewsItem, AnnouncementItem } from '@/data/api/types';
 
 export type NewsKind = 'news' | 'announcement';
 

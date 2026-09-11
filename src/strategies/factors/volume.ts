@@ -1,7 +1,6 @@
 /**
  * 量比因子：当日成交量 / N 日均量。
  */
-import type { Candle } from '@/api';
 import { sma, volumes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

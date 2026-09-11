@@ -7,9 +7,9 @@
 import React from 'react';
 import { act, create, ReactTestRenderer } from 'react-test-renderer';
 import { useKline } from '@/hooks/useMarketData';
-import { marketData } from '@/api';
-import { database, resetDatabase } from '@/db';
-import type { Candle, KlineParams, Symbol } from '@/api';
+import { marketData } from '@/data/api';
+import { database, resetDatabase } from '@/data/db';
+import type { Candle, KlineParams, Symbol } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '茅台' };
 const PERIOD = 'day';
@@ -45,7 +45,13 @@ describe('useKline 本地缓存接入', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    tree?.unmount();
+    // unmount 会触发 React 状态更新，必须包在 act 内，否则 afterEach 打出 not wrapped in act 警告
+    if (tree) {
+      act(() => {
+        tree.unmount();
+      });
+      tree = undefined as unknown as ReactTestRenderer;
+    }
   });
 
   it('挂载时缓存秒显，网络刷新后落盘合并', async () => {

@@ -9,7 +9,7 @@
  * 未列出的默认 absent，避免 88×4 全量铺开导致维护负担。
  * 期望写错 → 一致性测试失败；源能力变化 → 测试失败 → 强制回来改期望或改实现。
  */
-import type { DataSourceMethod } from '@/api';
+import type { DataSourceMethod } from '@/data/api';
 
 export type ExpectationKind = 'supported' | 'unsupported' | 'absent';
 

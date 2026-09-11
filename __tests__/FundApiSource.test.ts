@@ -11,9 +11,9 @@
  *
  * 测试通过 mock fund-api 的 funds.auto 完成（薄封装，不触达真实网络）。
  */
-import { FundApiSource } from '@/api/sources/FundApiSource';
-import { DataSourceError } from '@/api/MarketDataSource';
-import type { Symbol } from '@/api';
+import { FundApiSource } from '@/data/api/sources/FundApiSource';
+import { DataSourceError } from '@/data/api/MarketDataSource';
+import type { Symbol } from '@/data/api';
 
 jest.mock('fund-api', () => ({
   funds: {

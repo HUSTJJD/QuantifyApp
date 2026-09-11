@@ -9,11 +9,11 @@
  * 注：原测试面向旧的 resolveOrder / SUPPORT_MATRIX / runWithFallback 架构，随 db 接入重构（改走 SourceRouter）
  * 已失效；这里重写为面向新架构的最小冒烟测试。更完整的路由/兜底/熔断覆盖建议补 SourceRouter.test.ts。
  */
-import { MarketDataClient } from '@/api/MarketDataClient';
-import { setApiConfig, defaultApiConfig } from '@/api/config';
-import type { MarketDataSource } from '@/api/MarketDataSource';
-import { DataSourceError } from '@/api/MarketDataSource';
-import type { Symbol } from '@/api/types';
+import { MarketDataClient } from '@/data/api/MarketDataClient';
+import { setApiConfig, defaultApiConfig } from '@/data/api/config';
+import type { MarketDataSource } from '@/data/api/MarketDataSource';
+import { DataSourceError } from '@/data/api/MarketDataSource';
+import type { Symbol } from '@/data/api/types';
 import { isIndexSymbol } from '@/domain/symbol';
 
 const A: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };

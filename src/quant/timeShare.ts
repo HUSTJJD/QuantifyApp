@@ -10,7 +10,7 @@
  * 输入须为**按时间升序**的当日分钟 K；preClose 取昨收。
  * 仅做纯数据变换，不依赖任何 UI / 存储，便于单测；图表渲染由上层接 KLineChart。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 /** 单个分时数据点 */
 export interface TimeSharePoint {

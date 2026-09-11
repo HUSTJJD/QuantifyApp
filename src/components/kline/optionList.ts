@@ -5,7 +5,7 @@
  *   { modelArray, shouldScrollToEnd, targetList, price, volume, primary, second, time, configList, drawList }
  */
 import { Platform, PixelRatio, processColor } from 'react-native';
-import type { Candle, KlinePeriod } from '@/api';
+import type { Candle, KlinePeriod } from '@/data/api';
 import { colors } from '@/theme';
 import { calcMA, calcBOLL, calcMACD, calcKDJ, calcRSI, calcWR, sma, type RawCandle } from './indicators';
 

@@ -3,7 +3,7 @@
  * 纯函数，依赖 quant/indicators 的计算底座，仅做"序列 → 叠加结构"的适配与对齐。
  * 所有指标数组与输入 K 线等长；前导不足处为 NaN（图表层可据此跳过绘制）。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { sma, ema, macd, kdj, bollinger, rsi, volumes, closes } from '@/quant/indicators';
 
 /** 单条指标线（与 K 线等长，前导为 NaN）。 */

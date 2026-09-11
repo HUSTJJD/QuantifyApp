@@ -143,7 +143,6 @@ import type {
   EtfOptionExpireDay,
   EtfOptionMonths,
   Exchange,
-  FinancialReportPeriod,
   FundDividendListParams,
   FundDividendRecord,
   FundRankHistoryResult,

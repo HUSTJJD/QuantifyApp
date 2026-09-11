@@ -2,10 +2,10 @@ import {
   evaluateWatchlist,
   WatchlistPoller,
 } from '@/features/watchlist/poller';
-import { dedupeKey, clearAlertHistory } from '@/features/watchlist/alertHistory';
+import { dedupeKey } from '@/features/watchlist/alertHistory';
 import { DEFAULT_ALERT_RULES } from '@/features/watchlist/alerts';
-import { MemoryStorageAdapter, setStorage } from '@/db/storage';
-import type { Symbol, Quote } from '@/api';
+import { MemoryStorageAdapter, setStorage } from '@/data/db/storage';
+import type { Symbol, Quote } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '茅台' };
 const QUOTE_UP: Quote = {

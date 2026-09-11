@@ -1,11 +1,5 @@
 /**
- * 设置页：数据源自由切换 + 同花顺 API Key 自填。
- *
- * 核心需求落地：
- *  - 后端由用户自由选择：列出所有已注册数据源（同花顺 / stock-api / 未来任意后端），
- *    点击即切换主数据源并持久化；
- *  - 同花顺 Key 用户自己设置，存到本地存储（加密/落盘策略由 storage 层负责），不写死；
- *  - 无后端，所有偏好都保存在客户端。
+ * 设置页：外观 / 行情 / 交易默认值 / 数据源 / API Key / 本地库 / 缓存 / 关于。
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import {
@@ -19,21 +13,52 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { marketData } from '@/api';
-import { getApiConfig } from '@/api';
+import { marketData } from '@/data/api';
+import { getApiConfig } from '@/data/api';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import { colors, spacing, fontSize, radius } from '@/theme';
+import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { Toggle } from '@/components';
+import {
+  getAppPrefs,
+  setAppPrefs,
+  primeAppPrefs,
+  DEFAULT_PREFS,
+  type AppPrefs,
+} from '@/settings/appPrefs';
+import { quoteFeed } from '@/data/QuoteFeed';
+import { quantStore } from '@/data/db/QuantStore';
 
-export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack: () => void; onOpenDebug?: () => void; onOpenApiStats?: () => void }): React.JSX.Element {
-  const { mode, toggle } = useAppTheme();
+const INTERVAL_OPTIONS = [3, 5, 10, 15, 30];
+const RATIO_OPTIONS = [
+  { label: '1/4', value: 0.25 },
+  { label: '1/3', value: 1 / 3 },
+  { label: '1/2', value: 0.5 },
+  { label: '全仓', value: 1 },
+];
+const CASH_OPTIONS = [50_000, 100_000, 200_000, 500_000, 1_000_000];
+const APP_VERSION = '0.1.0';
+
+export function SettingsScreen({
+  onBack,
+  onOpenDebug,
+  onOpenApiStats,
+}: {
+  onBack: () => void;
+  onOpenDebug?: () => void;
+  onOpenApiStats?: () => void;
+}): React.JSX.Element {
+  const { mode, toggle, colors } = useAppTheme();
   const [sources, setSources] = useState<{ id: string; label: string }[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [prefs, setPrefs] = useState<AppPrefs>({ ...DEFAULT_PREFS });
+  const [clearing, setClearing] = useState(false);
   const insets = useSafeAreaInsets();
   const { stats, running, progress, lastSyncAt, triggerSync, refreshStats } = useSyncStatus();
+  const styles = makeStyles(colors);
 
   const loadSettings = useCallback(() => {
     setSources(marketData.listSources());
@@ -42,6 +67,10 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
 
   useEffect(() => {
     loadSettings();
+    getAppPrefs().then((p) => {
+      setPrefs(p);
+      primeAppPrefs(p);
+    });
   }, [loadSettings]);
 
   const onRefresh = useCallback(async () => {
@@ -49,10 +78,20 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
     try {
       loadSettings();
       refreshStats();
+      const p = await getAppPrefs();
+      setPrefs(p);
+      primeAppPrefs(p);
     } finally {
       setRefreshing(false);
     }
   }, [loadSettings, refreshStats]);
+
+  const savePrefs = useCallback(async (patch: Partial<AppPrefs>) => {
+    const next = await setAppPrefs(patch);
+    primeAppPrefs(next);
+    setPrefs(next);
+    if (patch.quoteIntervalSec !== undefined) quoteFeed.applyPollInterval();
+  }, []);
 
   const onSelectSource = async (id: string) => {
     setSelected(id);
@@ -63,17 +102,52 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
     setSaving(true);
     try {
       await marketData.setApiKey(apiKey.trim());
-      // SDK（@opptrix/fuyao）的 client 在启动时读取一次 Key 并缓存，改 Key 后需重启生效
       Alert.alert('已保存', '同花顺 API Key 已保存到本机，请重启应用后生效');
     } finally {
       setSaving(false);
     }
   };
 
+  const onClearCaches = () => {
+    Alert.alert('清理缓存', '将清空过期方法缓存与行情内存缓存，不影响本地K线库与自选。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '清理',
+        style: 'destructive',
+        onPress: () => {
+          setClearing(true);
+          (async () => {
+            try {
+              await quantStore().clearAllMethodCache();
+              quoteFeed.refreshNow().catch(() => undefined);
+              Alert.alert('已清理', '过期缓存已删除');
+            } catch {
+              Alert.alert('清理失败', '请稍后重试');
+            } finally {
+              setClearing(false);
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
+  const onResetPrefs = () => {
+    Alert.alert('恢复默认偏好', '行情间隔、仓位、初始资金等将恢复默认。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '恢复',
+        onPress: () => {
+          savePrefs({ ...DEFAULT_PREFS }).catch(() => undefined);
+        },
+      },
+    ]);
+  };
+
   return (
     <ScrollView
       style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />
       }
@@ -87,10 +161,93 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
 
       <Text style={styles.sectionTitle}>外观</Text>
       <View style={styles.themeRow}>
-        <Text style={styles.sourceLabel}>主题</Text>
-        <TouchableOpacity style={styles.themeToggle} onPress={toggle}>
-          <Text style={styles.themeToggleText}>{mode === 'dark' ? '暗色' : '亮色'}</Text>
-        </TouchableOpacity>
+        <Text style={styles.sourceLabel}>深色模式</Text>
+        <Toggle on={mode === 'dark'} onChange={() => toggle()} />
+      </View>
+
+      <Text style={styles.sectionTitle}>行情刷新</Text>
+      <Text style={styles.sectionHint}>交易时段内轮询间隔；间隔越短越费电与接口配额。</Text>
+      <View style={styles.chipRow}>
+        {INTERVAL_OPTIONS.map((sec) => (
+          <TouchableOpacity
+            key={sec}
+            style={[styles.chip, prefs.quoteIntervalSec === sec && styles.chipActive]}
+            onPress={() => savePrefs({ quoteIntervalSec: sec })}
+          >
+            <Text style={[styles.chipText, prefs.quoteIntervalSec === sec && styles.chipTextActive]}>{sec}s</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>交易默认值</Text>
+      <Text style={styles.sectionHint}>新建策略档案与快速回测时的默认参数。</Text>
+      <Text style={styles.fieldLabel}>默认单笔仓位</Text>
+      <View style={styles.chipRow}>
+        {RATIO_OPTIONS.map((o) => (
+          <TouchableOpacity
+            key={o.label}
+            style={[styles.chip, Math.abs(prefs.defaultPositionRatio - o.value) < 0.01 && styles.chipActive]}
+            onPress={() => savePrefs({ defaultPositionRatio: o.value })}
+          >
+            <Text style={[styles.chipText, Math.abs(prefs.defaultPositionRatio - o.value) < 0.01 && styles.chipTextActive]}>
+              {o.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.fieldLabel}>默认信号K线</Text>
+      <View style={styles.chipRow}>
+        {(['day', '60m', '30m', '15m', '5m'] as const).map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[styles.chip, prefs.defaultSignalPeriod === p && styles.chipActive]}
+            onPress={() => savePrefs({ defaultSignalPeriod: p })}
+          >
+            <Text style={[styles.chipText, prefs.defaultSignalPeriod === p && styles.chipTextActive]}>
+              {p === 'day' ? '日K' : p}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.fieldLabel}>回测初始资金（元）</Text>
+      <View style={styles.chipRow}>
+        {CASH_OPTIONS.map((v) => (
+          <TouchableOpacity
+            key={v}
+            style={[styles.chip, prefs.defaultInitCash === v && styles.chipActive]}
+            onPress={() => savePrefs({ defaultInitCash: v })}
+          >
+            <Text style={[styles.chipText, prefs.defaultInitCash === v && styles.chipTextActive]}>
+              {v >= 10000 ? `${v / 10000}万` : v}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>首页模块</Text>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>热股榜</Text>
+        <Toggle on={prefs.showHotStocks} onChange={(n) => savePrefs({ showHotStocks: n })} />
+      </View>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>涨跌停概览</Text>
+        <Toggle on={prefs.showLimitBoard} onChange={(n) => savePrefs({ showLimitBoard: n })} />
+      </View>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>大盘资金流</Text>
+        <Toggle on={prefs.showFundFlow} onChange={(n) => savePrefs({ showFundFlow: n })} />
+      </View>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>盘中资金流排行</Text>
+        <Toggle on={prefs.showFundFlowRanks} onChange={(n) => savePrefs({ showFundFlowRanks: n })} />
+      </View>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>北向 / 两融</Text>
+        <Toggle on={prefs.showMarketPulse} onChange={(n) => savePrefs({ showMarketPulse: n })} />
+      </View>
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>今日异动</Text>
+        <Toggle on={prefs.showTodaySurge} onChange={(n) => savePrefs({ showTodaySurge: n })} />
       </View>
 
       <Text style={styles.sectionTitle}>数据源（可自由切换后端）</Text>
@@ -104,9 +261,7 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
           onPress={() => onSelectSource(s.id)}
         >
           <Text style={styles.sourceLabel}>{s.label}</Text>
-          <Text style={[styles.radio, selected === s.id && styles.radioOn]}>
-            {selected === s.id ? '●' : '○'}
-          </Text>
+          <Text style={[styles.radio, selected === s.id && styles.radioOn]}>{selected === s.id ? '●' : '○'}</Text>
         </TouchableOpacity>
       ))}
 
@@ -131,14 +286,18 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
       </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>本地数据（量化库）</Text>
-      <Text style={styles.sectionHint}>全市场标的与日 K 增量同步；周/月 K 与复权由本地计算。</Text>
+      <Text style={styles.sectionHint}>
+        全市场标的与日 K 增量同步。「日K根数」= 标的 × 历史K线总行数（5000 标的 × 近 20 根 ≈ 10 万），不是标的家数。
+      </Text>
       <View style={styles.statRow}>
-        <StatItem label="标的" value={String(stats.tickers)} />
-        <StatItem label="K线行" value={fmtCount(stats.klineRows)} />
-        <StatItem label="复权因子" value={String(stats.factors)} />
-        <StatItem label="已同步" value={String(stats.synced)} />
+        <StatItem label="标的" value={String(stats.tickers)} colors={colors} />
+        <StatItem label="日K根数" value={fmtCount(stats.klineRows)} colors={colors} />
+        <StatItem label="复权因子" value={String(stats.factors)} colors={colors} />
+        <StatItem label="已同步" value={String(stats.synced)} colors={colors} />
       </View>
-      {lastSyncAt > 0 && <Text style={styles.statHint}>上次同步：{new Date(lastSyncAt).toLocaleTimeString()}</Text>}
+      {lastSyncAt > 0 && (
+        <Text style={styles.statHint}>上次同步：{new Date(lastSyncAt).toLocaleString('zh-CN')}</Text>
+      )}
       {running && progress && (
         <Text style={styles.statHint}>
           同步中 {progress.done}/{progress.total}（跳过 {progress.skipped}，失败 {progress.failed}）
@@ -150,6 +309,12 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
         disabled={running}
       >
         <Text style={styles.btnText}>{running ? '同步中…' : '立即同步'}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.btnGhost, clearing && styles.btnDisabled]} onPress={onClearCaches} disabled={clearing}>
+        <Text style={styles.btnGhostText}>{clearing ? '清理中…' : '清理过期缓存'}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.btnGhost} onPress={onResetPrefs}>
+        <Text style={styles.btnGhostText}>恢复默认偏好</Text>
       </TouchableOpacity>
 
       {onOpenDebug && (
@@ -165,24 +330,44 @@ export function SettingsScreen({ onBack, onOpenDebug, onOpenApiStats }: { onBack
           </TouchableOpacity>
         </>
       )}
+
+      <Text style={styles.sectionTitle}>关于</Text>
+      <View style={styles.aboutBox}>
+        <Text style={styles.aboutTitle}>QuantifyApp</Text>
+        <Text style={styles.aboutDesc}>版本 {APP_VERSION} · 本地优先的个人量化工具</Text>
+        <Text style={styles.aboutDesc}>数据源：同花顺官方 SDK / REST · stock-sdk 兜底</Text>
+        <Text style={styles.aboutDesc}>所有偏好与持仓仅保存在本机</Text>
+      </View>
     </ScrollView>
   );
 }
 
-function StatItem({ label, value }: { label: string; value: string }): React.JSX.Element {
+function StatItem({
+  label,
+  value,
+  colors,
+}: {
+  label: string;
+  value: string;
+  colors: ReturnType<typeof useAppTheme>['colors'];
+}): React.JSX.Element {
   return (
-    <View style={statStyles.item}>
-      <Text style={statStyles.value}>{value}</Text>
-      <Text style={statStyles.label}>{label}</Text>
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radius.sm,
+        marginRight: spacing.xs,
+      }}
+    >
+      <Text style={{ color: colors.text, fontSize: fontSize.md, fontWeight: '700' }}>{value}</Text>
+      <Text style={{ color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 2 }}>{label}</Text>
     </View>
   );
 }
-
-const statStyles = StyleSheet.create({
-  item: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, marginRight: spacing.xs },
-  value: { color: colors.text, fontSize: fontSize.md, fontWeight: '700' },
-  label: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 2 },
-});
 
 function fmtCount(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
@@ -190,60 +375,100 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md },
-  topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
-  back: { color: colors.primary, fontSize: fontSize.md, marginRight: spacing.md },
-  title: { color: colors.text, fontSize: fontSize.lg, fontWeight: '700' },
-  sectionTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: '700', marginTop: spacing.lg, marginBottom: spacing.xs },
-  sectionHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: spacing.sm },
-  statRow: { flexDirection: 'row', marginBottom: spacing.xs },
-  statHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: spacing.xs },
-  themeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    marginBottom: spacing.sm,
-  },
-  themeToggle: { backgroundColor: colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.sm },
-  themeToggleText: { color: colors.primary, fontSize: fontSize.md, fontWeight: '600' },
-  sourceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    marginBottom: spacing.xs,
-  },
-  sourceRowActive: { borderColor: colors.primary, backgroundColor: colors.surfaceAlt },
-  sourceLabel: { color: colors.text, fontSize: fontSize.md },
-  radio: { color: colors.textSecondary, fontSize: fontSize.lg },
-  radioOn: { color: colors.primary },
-  input: {
-    backgroundColor: colors.surface,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-    fontSize: fontSize.md,
-  },
-  btn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: '#fff', fontSize: fontSize.md, fontWeight: '600' },
-});
+function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    content: { padding: spacing.md },
+    topBar: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+    back: { color: colors.primary, fontSize: fontSize.md, marginRight: spacing.md },
+    title: { color: colors.text, fontSize: fontSize.lg, fontWeight: '700' },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: fontSize.md,
+      fontWeight: '700',
+      marginTop: spacing.lg,
+      marginBottom: spacing.xs,
+    },
+    sectionHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: spacing.sm },
+    fieldLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginBottom: spacing.xs, marginTop: spacing.xs },
+    statRow: { flexDirection: 'row', marginBottom: spacing.xs },
+    statHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: spacing.xs },
+    themeRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      marginBottom: spacing.sm,
+      backgroundColor: colors.surface,
+    },
+    sourceRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      marginBottom: spacing.xs,
+      backgroundColor: colors.surface,
+    },
+    sourceRowActive: { borderColor: colors.primary, backgroundColor: colors.surfaceAlt },
+    sourceLabel: { color: colors.text, fontSize: fontSize.md },
+    radio: { color: colors.textSecondary, fontSize: fontSize.lg },
+    radioOn: { color: colors.primary },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+    chip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceAlt,
+    },
+    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+    chipText: { color: colors.text, fontSize: fontSize.sm },
+    chipTextActive: { color: '#fff', fontWeight: '700' },
+    input: {
+      backgroundColor: colors.surface,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      padding: spacing.sm,
+      fontSize: fontSize.md,
+    },
+    btn: {
+      backgroundColor: colors.primary,
+      borderRadius: radius.sm,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      marginTop: spacing.sm,
+    },
+    btnGhost: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      paddingVertical: spacing.sm,
+      alignItems: 'center',
+      marginTop: spacing.sm,
+      backgroundColor: colors.surface,
+    },
+    btnGhostText: { color: colors.text, fontSize: fontSize.md, fontWeight: '600' },
+    btnDisabled: { opacity: 0.5 },
+    btnText: { color: '#fff', fontSize: fontSize.md, fontWeight: '600' },
+    aboutBox: {
+      padding: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    aboutTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: '700', marginBottom: 4 },
+    aboutDesc: { color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
+  });
+}

@@ -8,7 +8,7 @@
  * 说明：买卖信号复用 src/quant/strategies.ts 注册表里的指标引擎作为「信号内核」，
  * 策略档案是对它的可编辑配置层；后续可按需求迭代新增选股模型/风控等能力。
  */
-import type { Candle, Quote } from '@/api';
+import type { Candle, Quote } from '@/data/api';
 import { STRATEGIES, type Strategy, type PartialSignal } from './strategies';
 import { chinaParts } from '@/utils/trading';
 
@@ -144,20 +144,87 @@ export function strategyOfProfile(p: StrategyProfile): Strategy {
 }
 
 /** 直接按档案参数评估信号内核（供自动交易运行时用，避免额外包装）。 */
-export function evaluateProfile(p: StrategyProfile, candles: Candle[], quote?: Quote | null): PartialSignal | null {
+export function evaluateProfile(p: StrategyProfile, candles: Candle[], _quote?: Quote | null): PartialSignal | null {
   const t = templateById(p.templateId);
   if (!t || candles.length === 0) return null;
-  return t.evaluate(candles, { quote, params: { ...t.defaultParams, ...p.params } });
+  const overrides = factorOverridesFrom(p.params);
+  const sig = evaluateStrategyFromTemplate(p.templateId, candles, overrides);
+  if (!sig) return null;
+  return { side: sig.side, reason: sig.reason, strength: sig.strength };
 }
 
-/** 参数编辑器元数据（由 defaultParams key → 中文标签 + 步进范围）。 */
-export const PARAM_SPECS: Record<string, { key: string; label: string; min?: number; max?: number; step?: number }[]> = {
-  // 趋势确认当前无运行时参数（条件阈值写死在 composite.ts 规则里）
-  trend_confirm: [],
-};
+function evaluateStrategyFromTemplate(
+  templateId: string,
+  candles: Candle[],
+  overrides: Record<string, Record<string, number>>,
+) {
+  const { getTemplate } = require('@/strategies/templates') as typeof import('@/strategies/templates');
+  const { evaluateStrategy } = require('@/strategies/engine') as typeof import('@/strategies/engine');
+  const tpl = getTemplate(templateId);
+  return tpl ? evaluateStrategy(tpl, candles, overrides) : null;
+}
 
-export function paramSpecsOf(templateId: string): { key: string; label: string; min?: number; max?: number; step?: number }[] {
-  return PARAM_SPECS[templateId] ?? [];
+/** 单个可调参数（扁平 key = `factorId.paramKey`） */
+export interface ParamSpec {
+  key: string;
+  label: string;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+/** 按因子分组的参数编辑元数据 */
+export interface ParamGroup {
+  factorId: string;
+  factorLabel: string;
+  specs: ParamSpec[];
+}
+
+/** 参数编辑器元数据：从模板用到的因子收集参数，按因子分组。 */
+export function paramGroupsOf(templateId: string): ParamGroup[] {
+  const { getTemplate } = require('@/strategies/templates') as typeof import('@/strategies/templates');
+  const { factorsUsedBy } = require('@/strategies/engine') as typeof import('@/strategies/engine');
+  const { getFactor } = require('@/strategies/factors') as typeof import('@/strategies/factors');
+  const tpl = getTemplate(templateId);
+  if (!tpl) return [];
+  const groups: ParamGroup[] = [];
+  for (const fid of factorsUsedBy(tpl)) {
+    const f = getFactor(fid);
+    if (!f || f.params.length === 0) continue;
+    groups.push({
+      factorId: fid,
+      factorLabel: f.label,
+      specs: f.params.map((p) => ({
+        key: `${fid}.${p.key}`,
+        label: p.label,
+        min: p.min,
+        max: p.max,
+        step: p.step,
+      })),
+    });
+  }
+  return groups;
+}
+
+/** 扁平参数列表（兼容旧调用；label 含因子前缀）。 */
+export function paramSpecsOf(templateId: string): ParamSpec[] {
+  return paramGroupsOf(templateId).flatMap((g) =>
+    g.specs.map((s) => ({ ...s, label: `${g.factorLabel} · ${s.label}` })),
+  );
+}
+
+/** 把档案扁平 params（factorId.paramKey）转成引擎的嵌套 overrides */
+export function factorOverridesFrom(params: Record<string, number>): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    const i = k.indexOf('.');
+    if (i <= 0) continue;
+    const fid = k.slice(0, i);
+    const pk = k.slice(i + 1);
+    if (!out[fid]) out[fid] = {};
+    out[fid][pk] = v;
+  }
+  return out;
 }
 
 /* --------------------------------- 规则判断 -------------------------------- */

@@ -21,12 +21,12 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, SafeAreaView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
-import { marketData } from '@/api';
+import { marketData } from '@/data/api';
 import { useKline, useQuotes } from '@/hooks/useMarketData';
 import { useLocalKline } from '@/hooks/useLocalKline';
 import type { AdjustMode } from '@/quant/adjustment';
 import { displaySymbol, isIndexSymbol } from '@/domain';
-import type { KlinePeriod, OrderBook, Symbol, Valuation, FinancialReport, Quote } from '@/api';
+import type { KlinePeriod, OrderBook, Symbol, Valuation, FinancialReport, Quote } from '@/data/api';
 import { KLineChart, Card, Section } from '@/components';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
@@ -55,19 +55,21 @@ import {
   NorthboundFlow,
 } from '@/features/stock/capitalFlow';
 import { buildNewsFeed, NormalizedNews } from '@/features/stock/news';
-import { NewsItem, AnnouncementItem } from '@/api/types';
-import { getWatchlist, addToWatchlist, removeFromWatchlist } from '@/repositories/WatchlistRepository';
+import { NewsItem, AnnouncementItem } from '@/data/api/types';
+import { getWatchlist, addToWatchlist, removeFromWatchlist } from '@/data/repositories/WatchlistRepository';
 import { openThsDetail } from '@/utils/thsDeepLink';
 
 /** 周期 tab：分时 + 日/周/月 */
 type ChartTab = '1m' | 'day' | 'week' | 'month';
 
-/** 主图/副图指标切换（KLineChart 原生支持） */
+/** 主图指标切换 */
 const MAIN_INDICATORS = [
   { key: 'ma', label: 'MA' },
   { key: 'boll', label: 'BOLL' },
 ] as const;
+/** 副图指标（ECharts 面板） */
 const SUB_INDICATORS = [
+  { key: 'volume', label: '成交量' },
   { key: 'macd', label: 'MACD' },
   { key: 'kdj', label: 'KDJ' },
   { key: 'rsi', label: 'RSI' },
@@ -139,7 +141,7 @@ export function StockDetailScreen({
   // 周期 / 指标 / 复权状态
   const [tab, setTab] = useState<ChartTab>('day');
   const [mainInd, setMainInd] = useState<'ma' | 'boll'>('ma');
-  const [subInd, setSubInd] = useState<'macd' | 'kdj' | 'rsi' | 'wr' | 'none'>('macd');
+  const [subInd, setSubInd] = useState<'volume' | 'macd' | 'kdj' | 'rsi' | 'wr' | 'none'>('volume');
   const [adjustMode, setAdjustMode] = useState<AdjustMode>('forward');
 
   // TI 板块指数视 1m 为 day，避免对不支持的能力发请求
@@ -343,12 +345,13 @@ export function StockDetailScreen({
             <IndSwitch label={MAIN_INDICATORS[1].label} active={mainInd === 'boll'} onPress={() => setMainInd('boll')} />
           </View>
         </View>
-        {/* 副图指标切换行 */}
+        {/* 副图指标切换 */}
         <View style={styles.subIndRow}>
           {SUB_INDICATORS.map((s) => (
             <IndSwitch key={s.key} label={s.label} active={subInd === s.key} onPress={() => setSubInd(s.key)} small />
           ))}
         </View>
+
 
         {/* 复权选项行（日/周/月 本地复权计算；分时无复权；指数/板块无复权语义） */}
         {!isIntraday && !isIndex && (
@@ -509,7 +512,7 @@ export function StockDetailScreen({
         <TouchableOpacity
           style={[styles.bottomBtn, styles.thsBarBtn]}
           onPress={() => {
-            void openThsDetail(symbol);
+            openThsDetail(symbol).catch(() => undefined);
           }}
         >
           <Icon name={Icons.openExternal} size={18} color={c.text} />

@@ -16,7 +16,7 @@
  *  - 每日累计因子 factor_i = factor_{i-1} * (1 + perShareBonus) + dividendPerShare/price 近似；
  *  - 精确算法：前复权用「最新一日为基准 1.0，向前累计」；后复权用「首日为基准 1.0，向后累计」。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 export type AdjustMode = 'none' | 'forward' | 'backward';
 

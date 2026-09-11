@@ -1,6 +1,6 @@
 /**
  * 键值存储层统一出口（Barrel）+ 默认实例（db 模块的 KV 子层）。
- * 业务层只 import { storage } from '@/db/storage'。
+ * 业务层只 import { storage } from '@/data/db/storage'。
  *
  * 定位：本层只负责「小体量、整存整取」的键值数据（设置项、行情缓存、搜索/告警历史等），
  * 与上层 SQLite 主库分工明确：

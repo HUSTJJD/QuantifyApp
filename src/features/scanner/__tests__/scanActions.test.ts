@@ -1,6 +1,7 @@
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import type { ScanHit } from '@/quant/scanner';
-import { hitKey, hitsToSymbols, addHitsToWatchlist } from '../scanActions';
+import { hitKey, hitsToSymbols, addHitsToWatchlist, saveScanSnapshot } from '../scanActions';
+import { quantStore, resetQuantStore } from '@/data/db/QuantStore';
 
 function makeHit(code: string, exchange: Symbol['exchange'] = 'SH', name = code): ScanHit {
   return {
@@ -49,5 +50,34 @@ describe('scanActions', () => {
     const add = jest.fn(async () => [] as Symbol[]);
     expect(await addHitsToWatchlist([], add)).toBe(0);
     expect(add).not.toHaveBeenCalled();
+  });
+
+  describe('saveScanSnapshot', () => {
+    beforeEach(() => resetQuantStore());
+
+    it('持久化快照与命中明细，可回读', async () => {
+      const hits = [makeHit('600000'), makeHit('000001', 'SZ')];
+      const id = await saveScanSnapshot({ macdGoldenCross: true }, hits, 5000, 1234);
+      expect(id).toBeGreaterThan(0);
+
+      const store = quantStore();
+      const snapshots = await store.listScanSnapshots();
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0].hitCount).toBe(2);
+      expect(snapshots[0].total).toBe(5000);
+      expect(JSON.parse(snapshots[0].criteria)).toEqual({ macdGoldenCross: true });
+
+      const hitRows = await store.listScanHits(id);
+      expect(hitRows).toHaveLength(2);
+      expect(hitRows[0].code).toBe('600000');
+      expect(hitRows[0].reasons).toContain('MACD');
+    });
+
+    it('空命中也可落库', async () => {
+      const id = await saveScanSnapshot({}, [], 100, 50);
+      const store = quantStore();
+      const hitRows = await store.listScanHits(id);
+      expect(hitRows).toHaveLength(0);
+    });
   });
 });

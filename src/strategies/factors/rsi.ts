@@ -1,7 +1,6 @@
 /**
  * RSI 因子：超卖偏多、超买偏空；阈值可调。
  */
-import type { Candle } from '@/api';
 import { rsi, closes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

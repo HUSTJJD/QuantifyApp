@@ -10,9 +10,9 @@
  *  1. 源层：查无数据必须跳过，不得返回全 0 行；
  *  2. catalog 层：assertResult 拒绝 last/prevClose 双 0。
  */
-import { StockSdkSource } from '@/api/sources/StockSdkSource';
-import { METHOD_CATALOG } from '@/api/contract/catalog';
-import type { Symbol } from '@/api';
+import { StockSdkSource } from '@/data/api/sources/StockSdkSource';
+import { METHOD_CATALOG } from '@/data/api/contract/catalog';
+import type { Symbol } from '@/data/api';
 
 jest.mock('stock-sdk', () => {
   const mockSdk = {
@@ -29,7 +29,6 @@ jest.mock('stock-sdk', () => {
   return { StockSDK: jest.fn(() => mockSdk), __mockSdk: mockSdk };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { __mockSdk: mockSdk } = jest.requireMock('stock-sdk') as {
   __mockSdk: { quotes: Record<string, jest.Mock> };
 };

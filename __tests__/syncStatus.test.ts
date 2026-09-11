@@ -2,9 +2,9 @@
  * useSyncStatus 底层统计 + 复权因子存储单测。
  * 验证：MarketMetaStore 复权因子读写、全量统计（内存回落引擎）。
  */
-import { database, resetDatabase } from '@/db';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
-import type { Candle, Symbol } from '@/api';
+import { database, resetDatabase } from '@/data/db';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
+import type { Candle, Symbol } from '@/data/api';
 
 const SYM_A: Symbol = { code: '600519', exchange: 'SH' };
 

@@ -3,19 +3,19 @@
  * 并把自选股持久化到客户端本地存储（WatchlistRepository）。
  */
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
-import { marketData } from '@/api';
+import { marketData } from '@/data/api';
 import { useQuotes } from '@/hooks/useMarketData';
 import { toFullCode, displaySymbol } from '@/domain';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { colors, spacing, fontSize, radius, fontWeight } from '@/theme';
+import { spacing, fontSize, radius, fontWeight } from '@/theme';
 import {
   getWatchlist,
   removeFromWatchlist,
-} from '@/repositories/WatchlistRepository';
+} from '@/data/repositories/WatchlistRepository';
 import { detectAlerts, DEFAULT_ALERT_RULES, type AlertEvent } from '@/features/watchlist/alerts';
 import {
   recordAlerts,
@@ -38,7 +38,7 @@ export function WatchlistScreen({
   const focused = useIsFocused();
   const [watch, setWatch] = useState<Symbol[]>([]);
   const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
-  const { data, loading, error, reload } = useQuotes(watch, 'stock', focused);
+  const { data, error } = useQuotes(watch, 'stock', focused);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {

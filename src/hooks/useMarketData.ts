@@ -4,12 +4,12 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { marketData } from '@/api';
+import { marketData } from '@/data/api';
 import { isTradingNow } from '@/utils/trading';
-import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/cache/QuotesCache';
+import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/data/cache/QuotesCache';
 import { logger } from '@/utils/logger';
-import { database } from '@/db';
-import type { Candle, KlineParams, KlinePeriod, Quote, Symbol } from '@/api';
+import { database } from '@/data/db';
+import type { Candle, KlineParams, KlinePeriod, Quote, Symbol } from '@/data/api';
 
 interface AsyncState<T> {
   data: T | null;

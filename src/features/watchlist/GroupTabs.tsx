@@ -8,12 +8,13 @@
  *  - 点击回调 onSelect / onCreate
  */
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import type { WatchlistGroup } from '@/repositories/WatchlistRepository';
+import type { WatchlistGroup } from '@/data/repositories/WatchlistRepository';
+import { isDynamicGroup } from '@/data/repositories/WatchlistRepository';
 
 interface GroupTabsProps {
   groups: WatchlistGroup[];
@@ -34,6 +35,7 @@ export function GroupTabs({ groups, activeId, onSelect, onCreate }: GroupTabsPro
     >
       {groups.map((g) => {
         const active = g.id === activeId;
+        const dyn = isDynamicGroup(g);
         return (
           <TouchableOpacity
             key={g.id}
@@ -41,6 +43,7 @@ export function GroupTabs({ groups, activeId, onSelect, onCreate }: GroupTabsPro
             onPress={() => onSelect(g.id)}
           >
             <Text style={[styles.tabText, active && styles.tabTextActive]}>
+              {dyn ? '⚡' : ''}
               {g.name}
               <Text style={styles.count}> ({g.symbols.length})</Text>
             </Text>

@@ -9,9 +9,9 @@
  * 数据流：本地无日 K 时回退网络（一次性拉取，不落库），保证首次打开也有数据。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCandlesLocal, getCandlesFallback } from '@/db/KlineReader';
+import { getCandlesLocal, getCandlesFallback } from '@/data/db/KlineReader';
 import type { AdjustMode } from '@/quant/adjustment';
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
 interface AsyncState<T> {
   data: T | null;

@@ -5,8 +5,8 @@
  * 验证全部 DDL 会被执行。
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import { applySchema, DDL_STATEMENTS } from '@/db/schema';
-import { closeSqlite, getSqlite, isSqliteAvailable } from '@/db/connection';
+import { applySchema, DDL_STATEMENTS } from '@/data/db/schema';
+import { closeSqlite, getSqlite, isSqliteAvailable } from '@/data/db/connection';
 
 function fakeDb() {
   const executed: { sql: string; params?: Scalar[] }[] = [];

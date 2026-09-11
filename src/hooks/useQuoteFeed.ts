@@ -3,8 +3,8 @@
  * 内部走 QuoteFeed 常驻服务（交易时段自动轮询），组件挂载即订阅、卸载即退订。
  */
 import { useEffect, useState, useCallback } from 'react';
-import type { Symbol, Quote } from '@/api';
-import { quoteFeed } from '@/services/QuoteFeed';
+import type { Symbol, Quote } from '@/data/api';
+import { quoteFeed } from '@/data/QuoteFeed';
 
 export function useQuoteFeed(symbols: Symbol[]): {
   quotes: Quote[];
@@ -45,7 +45,7 @@ export function useQuoteFeed(symbols: Symbol[]): {
 }
 
 // 直接读行情缓存（QuoteFeed 已写入），避免再发一次网络
-import { marketData } from '@/api';
+import { marketData } from '@/data/api';
 async function marketDataQuotes(symbols: Symbol[]): Promise<Quote[]> {
   return marketData.getQuotes(symbols);
 }

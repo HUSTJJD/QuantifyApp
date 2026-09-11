@@ -1,19 +1,20 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
+    "strict": true,
     "customConditions": ["react-native-strict-api"],
     "paths": {
       "@/*": ["./src/*"],
-      "@/api": ["./src/data/api"],
-      "@/api/*": ["./src/data/api/*"],
-      "@/db": ["./src/data/db"],
-      "@/db/*": ["./src/data/db/*"],
-      "@/cache": ["./src/data/cache"],
-      "@/cache/*": ["./src/data/cache/*"],
-      "@/sync": ["./src/data/sync"],
-      "@/sync/*": ["./src/data/sync/*"],
-      "@/repositories": ["./src/data/repositories"],
-      "@/repositories/*": ["./src/data/repositories/*"]
+      "@/data/api": ["./src/data/api"],
+      "@/data/api/*": ["./src/data/api/*"],
+      "@/data/db": ["./src/data/db"],
+      "@/data/db/*": ["./src/data/db/*"],
+      "@/data/cache": ["./src/data/cache"],
+      "@/data/cache/*": ["./src/data/cache/*"],
+      "@/data/sync": ["./src/data/sync"],
+      "@/data/sync/*": ["./src/data/sync/*"],
+      "@/data/repositories": ["./src/data/repositories"],
+      "@/data/repositories/*": ["./src/data/repositories/*"]
     },
     "noEmit": true
   },

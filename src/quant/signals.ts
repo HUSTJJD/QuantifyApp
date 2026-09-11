@@ -2,7 +2,7 @@
  * 信号引擎：把多个策略的局部信号合并成某标的的「最终买卖信号」。
  * 纯函数、可单测，不依赖 UI 与存储。
  */
-import type { Candle, Quote, Symbol } from '@/api';
+import type { Candle, Quote, Symbol } from '@/data/api';
 import { toFullCode } from '@/domain';
 import { STRATEGIES, activeStrategies, type SignalSide, type StrategyConfig } from './strategies';
 

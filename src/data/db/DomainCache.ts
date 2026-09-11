@@ -12,7 +12,7 @@
  *  margin_account / dragon_tiger_stat
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import { getSqlite } from './connection';
 import { toFullCode } from '@/domain/symbol';
 
@@ -243,7 +243,7 @@ type Row = Record<string, unknown>;
 /** 通用：按 where 键清旧 → 批量插入 expires_at 快照 */
 async function replaceSnapshot(
   db: DB | null,
-  mem: Map<string, Row>,
+  cache: Map<string, Row>,
   table: string,
   whereCols: string[],
   whereVals: unknown[],
@@ -255,12 +255,11 @@ async function replaceSnapshot(
 ): Promise<void> {
   const expiresAt = now + ttlMs;
   if (!db) {
-    const prefix = whereVals.join('|') + '|';
-    for (const [k, r] of mem) {
-      if (k.startsWith(prefix)) mem.delete(k);
+    for (const k of cache.keys()) {
+      if (k.startsWith(whereVals.join('|') + '|')) cache.delete(k);
     }
     for (const r of rows) {
-      mem.set(keyOf(r), { ...r, snapshot_at: now, expires_at: expiresAt });
+      cache.set(keyOf(r), { ...r, snapshot_at: now, expires_at: expiresAt });
     }
     return;
   }
@@ -284,7 +283,7 @@ async function replaceSnapshot(
 /** 通用：按 expires_at 查询 */
 async function listSnapshot(
   db: DB | null,
-  mem: Map<string, Row>,
+  cache: Map<string, Row>,
   table: string,
   whereCols: string[],
   whereVals: unknown[],
@@ -292,8 +291,7 @@ async function listSnapshot(
   now: number,
 ): Promise<Row[]> {
   if (!db) {
-    const prefix = whereVals.length ? whereVals.join('|') + '|' : '';
-    return [...mem.values()]
+    return [...cache.values()]
       .filter((r) => {
         if (n0(r.expires_at) <= now) return false;
         if (whereCols.length === 0) return true;
@@ -1002,7 +1000,7 @@ export class DomainCacheStore {
     const db = await this.db();
     // 无 expires：财务慢变，按 symbol 替换
     if (!db) {
-      for (const [k, r] of mem.financialReport) {
+      for (const k of mem.financialReport.keys()) {
         if (k.startsWith(symbolKey + '|')) mem.financialReport.delete(k);
       }
       for (const r of rows) {
@@ -1044,7 +1042,7 @@ export class DomainCacheStore {
   // ---------- 三表 / 指标 / 分红 / 估值等通用快照 ----------
 
   private async putList(
-    mem: Map<string, Row>,
+    cache: Map<string, Row>,
     table: string,
     whereCols: string[],
     whereVals: unknown[],
@@ -1055,11 +1053,11 @@ export class DomainCacheStore {
     now: number,
   ): Promise<void> {
     const db = await this.db();
-    await replaceSnapshot(db, mem, table, whereCols, whereVals, rows, cols, keyOf, ttlMs, now);
+    await replaceSnapshot(db, cache, table, whereCols, whereVals, rows, cols, keyOf, ttlMs, now);
   }
 
   private async list(
-    mem: Map<string, Row>,
+    cache: Map<string, Row>,
     table: string,
     whereCols: string[],
     whereVals: unknown[],
@@ -1067,7 +1065,7 @@ export class DomainCacheStore {
     now: number,
   ): Promise<Row[]> {
     const db = await this.db();
-    return listSnapshot(db, mem, table, whereCols, whereVals, orderBy, now);
+    return listSnapshot(db, cache, table, whereCols, whereVals, orderBy, now);
   }
 
   // 财务三表
@@ -1302,7 +1300,7 @@ export class DomainCacheStore {
   async putFundNavs(symbolKey: string, rows: Row[], now = Date.now()): Promise<void> {
     const db = await this.db();
     if (!db) {
-      for (const [k, r] of mem.fundNav) {
+      for (const k of mem.fundNav.keys()) {
         if (k.startsWith(symbolKey + '|')) mem.fundNav.delete(k);
       }
       for (const r of rows) {
@@ -1464,7 +1462,7 @@ export class DomainCacheStore {
   async putAdjustmentFactors(symbolKey: string, rows: Row[], now = Date.now()): Promise<void> {
     const db = await this.db();
     if (!db) {
-      for (const [k, r] of mem.adjustment) {
+      for (const k of mem.adjustment.keys()) {
         if (k.startsWith(symbolKey + '|')) mem.adjustment.delete(k);
       }
       for (const r of rows) {
@@ -1503,14 +1501,14 @@ export class DomainCacheStore {
   async pruneQuoteSnapshot(now = Date.now()): Promise<number> {
     const db = await this.db();
     if (!db) {
-      let n = 0;
+      let pruned = 0;
       for (const [k, r] of mem.quote) {
         if (r.expiresAt < now) {
           mem.quote.delete(k);
-          n += 1;
+          pruned += 1;
         }
       }
-      return n;
+      return pruned;
     }
     const res = await db.execute('DELETE FROM quote_snapshot WHERE expires_at < ?', [now]);
     return res.rowsAffected ?? 0;
@@ -1532,17 +1530,17 @@ export class DomainCacheStore {
     ];
     const db = await this.db();
     if (!db) {
-      let n = 0;
+      let pruned = 0;
       for (const map of Object.values(mem)) {
         for (const [k, r] of map as Map<string, { expiresAt?: number; expires_at?: number }>) {
           const exp = r.expiresAt ?? r.expires_at;
           if (typeof exp === 'number' && exp > 0 && exp < now) {
             (map as Map<string, unknown>).delete(k);
-            n += 1;
+            pruned += 1;
           }
         }
       }
-      return n;
+      return pruned;
     }
     let total = 0;
     for (const table of tables) {

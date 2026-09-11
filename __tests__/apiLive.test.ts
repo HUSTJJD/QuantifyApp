@@ -4,12 +4,12 @@
  * 直接调用真实数据源，断言返回值满足统一契约语义。
  * 运行：HITHINK_FINANCE_API_KEY=<key> yarn test apiLive
  */
-import { FuyaoApiSource } from '@/api/sources/FuyaoApiSource';
-import { HithsaApiSource } from '@/api/sources/HithsaApiSource';
-import { HithsaHttpClient } from '@/api/sources/HithsaHttpClient';
-import { StockSdkSource } from '@/api/sources/StockSdkSource';
-import { DataSourceError } from '@/api/MarketDataSource';
-import type { Candle, Quote, Symbol } from '@/api';
+import { FuyaoApiSource } from '@/data/api/sources/FuyaoApiSource';
+import { HithsaApiSource } from '@/data/api/sources/HithsaApiSource';
+import { HithsaHttpClient } from '@/data/api/sources/HithsaHttpClient';
+import { StockSdkSource } from '@/data/api/sources/StockSdkSource';
+import { DataSourceError } from '@/data/api/MarketDataSource';
+import type { Candle, Quote, Symbol } from '@/data/api';
 
 const CN: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 const HK: Symbol = { code: '00700', exchange: 'HK', name: '腾讯控股' };
@@ -43,14 +43,25 @@ function isUnsupported(e: unknown): boolean {
   return e instanceof DataSourceError && e.isUnsupported;
 }
 
-function isNetworkError(e: unknown): boolean {
+/**
+ * 东财 WAF 拦截：push2his 的 /api/qt/stock/kline/get 路径对非浏览器请求直接断连
+ * （TLS 握手成功后 empty reply），同 host 的 fflow 等端点正常。这不是「网络不可达」。
+ */
+function isEastmoneyWafBlock(e: unknown): boolean {
   const err = e as Error & { cause?: Error & { cause?: Error } };
   const s = JSON.stringify({
     m: err?.message,
     c: err?.cause?.message,
     cc: err?.cause?.cause?.message,
   });
-  return /fetch failed|Socket|network|ECONN|ETIMEDOUT|UND_ERR/i.test(s);
+  return /fetch failed|Socket|other side closed|UND_ERR_SOCKET/i.test(s);
+}
+
+/** 东财 WAF 拦截 kline 路径时跳过（上游反爬，非代码回归） */
+function skipIfWafBlock(e: unknown, label: string): boolean {
+  if (!isEastmoneyWafBlock(e)) return false;
+  console.log(`[skip] ${label} — 东财 WAF 拦截 kline 路径（非网络不可达）`);
+  return true;
 }
 
 jest.setTimeout(90_000);
@@ -79,30 +90,24 @@ describe('stock-sdk 真网', () => {
     expect(res[0].last).toBeGreaterThan(0);
   });
 
-  it('A股 getKline 日线 OHLC 合法（eastmoney 域名被拦则 skip）', async () => {
+  it('A股 getKline 日线 OHLC 合法（东财 WAF 拦截则 skip）', async () => {
     let res;
     try {
       res = await src.getKline({ symbol: CN, period: 'day', count: 30 });
     } catch (e) {
-      if (isNetworkError(e)) {
-        console.warn('[skip] stock-sdk kline 网络不可达（push2his.eastmoney.com）');
-        return;
-      }
+      if (skipIfWafBlock(e, 'stock-sdk kline')) return;
       throw e;
     }
     expect(res.length).toBeGreaterThan(0);
     for (const c of res) assertCandle(c);
   });
 
-  it('港股 getKline 日线 OHLC 合法（eastmoney 域名被拦则 skip）', async () => {
+  it('港股 getKline 日线 OHLC 合法（东财 WAF 拦截则 skip）', async () => {
     let res;
     try {
       res = await src.getKline({ symbol: HK, period: 'day', count: 30 });
     } catch (e) {
-      if (isNetworkError(e)) {
-        console.warn('[skip] stock-sdk HK kline 网络不可达');
-        return;
-      }
+      if (skipIfWafBlock(e, 'stock-sdk HK kline')) return;
       throw e;
     }
     expect(res.length).toBeGreaterThan(0);
@@ -173,7 +178,7 @@ describe('stock-sdk 真网', () => {
     }
   });
 
-  it('getChipDistribution 筹码（有数据则校验区间；依赖 K 线，域名被拦则 skip）', async () => {
+  it('getChipDistribution 筹码（有数据则校验区间；依赖 K 线，东财 WAF 拦截则 skip）', async () => {
     try {
       const res = await src.getChipDistribution({ symbol: CN, range: 30 });
       if (res.length > 0) {
@@ -184,10 +189,7 @@ describe('stock-sdk 真网', () => {
         }
       }
     } catch (e) {
-      if (isUnsupported(e) || isNetworkError(e)) {
-        console.warn('[skip] getChipDistribution', isNetworkError(e) ? '网络不可达' : '不支持');
-        return;
-      }
+      if (isUnsupported(e) || skipIfWafBlock(e, 'getChipDistribution')) return;
       throw e;
     }
   });

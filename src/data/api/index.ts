@@ -1,6 +1,6 @@
 /**
  * API 层统一出口（Barrel）。
- * 业务层只需 import { marketData } from '@/api' 即可。
+ * 业务层只需 import { marketData } from '@/data/api' 即可。
  */
 export type {
   Market,

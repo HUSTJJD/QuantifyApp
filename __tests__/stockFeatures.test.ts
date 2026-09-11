@@ -10,8 +10,8 @@ import {
   computeEarningsGrowthPct,
   fmtPct,
 } from '@/features/stock/fundamentals';
-import { resampleKline } from '@/api/sources/HithsaApiSource';
-import type { Candle, Valuation, FinancialReport, Symbol } from '@/api';
+import { resampleKline } from '@/data/api/sources/HithsaApiSource';
+import type { Candle, Valuation, FinancialReport, Symbol } from '@/data/api';
 
 function mkCandles(n: number, base = 10): Candle[] {
   const arr: Candle[] = [];
@@ -215,12 +215,7 @@ describe('computeDerivedMetrics 派生估值指标', () => {
 
 describe('computeEarningsGrowthPct 盈利同比增速', () => {
   it('最近两期净利同比为正', () => {
-    const reports: FinancialReport[] = [
-      { periodEndMs: 100, netProfit: 120 },
-      { periodEndMs: 200, netProfit: 100 },
-    ];
-    // 注意：按 periodEndMs 降序，最新=120(periodEndMs100?)，这里验证取「较大 periodEndMs」为最新
-    // periodEndMs 200 > 100 → 最新=100 期净利=100? 重新构造：让 periodEndMs 大的净利润也大
+    // periodEndMs 大的为最新期：最新净利 120，上期 100 → +20%
     const r2: FinancialReport[] = [
       { periodEndMs: 200, netProfit: 120 },
       { periodEndMs: 100, netProfit: 100 },

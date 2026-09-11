@@ -1,4 +1,4 @@
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { toTimeShareSeries } from '../timeShare';
 
 function bar(ts: number, close: number, volume: number, amount?: number): Candle {

@@ -11,8 +11,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { marketData } from '@/api';
-import type { IndexConstituent, Quote, Symbol } from '@/api';
+import { marketData } from '@/data/api';
+import type { IndexConstituent, Quote, Symbol } from '@/data/api';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, fontWeight } from '@/theme';
 

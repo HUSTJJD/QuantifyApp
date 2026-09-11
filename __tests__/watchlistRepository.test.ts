@@ -4,8 +4,8 @@ import {
   DEFAULT_GROUPS,
   WatchlistGroupsState,
   Symbol,
-} from '@/repositories/WatchlistRepository';
-import type { Exchange } from '@/api';
+} from '@/data/repositories/WatchlistRepository';
+import type { Exchange } from '@/data/api';
 
 const sym = (code: string, exchange: Exchange): Symbol => ({ code, exchange, name: code });
 const A = sym('600519', 'SH');

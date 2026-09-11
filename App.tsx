@@ -6,20 +6,21 @@
  *  - 用 react-native-paper 的 PaperProvider 提供统一 Material 组件主题。
  */
 import React, { useEffect, useState } from 'react';
-import { StatusBar, AppState } from 'react-native';
+import { StatusBar, AppState, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider as PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
-// import { MaterialCommunityIcons } from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
-import { marketData, applyUserPreferences } from '@/api';
-import { database } from '@/db';
+import { marketData, applyUserPreferences } from '@/data/api';
+import { database } from '@/data/db';
 import { AppNavigator } from '@/navigation/AppNavigator';
 import { SplashScreen } from '@/components/SplashScreen';
 import { ThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
 import { startSignalEngine } from '@/quant/SignalEngine';
 import { startStrategyEngine } from '@/quant/StrategyEngine';
 import { AlertCenterProvider, PollerBridge } from '@/features/watchlist/alertCenter';
-import { scheduleBackgroundSync } from '@/sync/scheduler';
+import { scheduleBackgroundSync } from '@/data/sync/scheduler';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 /** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。 */
@@ -33,6 +34,10 @@ function PaperIcon(props: React.ComponentProps<typeof MaterialCommunityIcons>): 
 //  3. 严禁把真实 Key 写死进代码/默认值。
 function App(): React.JSX.Element {
   const [splashDone, setSplashDone] = useState(false);
+  // MaterialCommunityIcons：迁移 Expo 后由 expo-font 从 assets/fonts 加载
+  const [fontsLoaded] = useFonts({
+    MaterialCommunityIcons: require('./assets/fonts/MaterialCommunityIcons.ttf'),
+  });
 
   useEffect(() => {
     // 回灌用户偏好（主数据源选择 + Key）；传入测试用环境变量 Key
@@ -59,16 +64,22 @@ function App(): React.JSX.Element {
     return () => appStateSub.remove();
   }, []);
 
+  if (!fontsLoaded) {
+    return <View style={styles.root} />;
+  }
+
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AlertCenterProvider>
-          <AppInner />
-          <PollerBridge />
-        </AlertCenterProvider>
-      </ThemeProvider>
-      {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AlertCenterProvider>
+            <AppInner />
+            <PollerBridge />
+          </AlertCenterProvider>
+        </ThemeProvider>
+        {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -91,5 +102,9 @@ function AppInner(): React.JSX.Element {
     </PaperProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
 
 export default App;

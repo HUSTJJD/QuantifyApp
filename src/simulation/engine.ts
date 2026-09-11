@@ -7,7 +7,7 @@
  *  - 数量：A 股 100 股/手整数倍；科创板 200 股起，这里统一按 100 取整。
  *  - 市价单：使用下单时传入的参考现价成交（模拟盘无盘口，等价快照）。
  */
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import type { Order, SimPosition, SimAccount, Side, OrderType, Trade } from './types';
 
 /** 佣金费率（万分之） */

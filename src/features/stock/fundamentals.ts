@@ -3,7 +3,7 @@
  * 转换为详情页可直接消费的、类型安全的展示结构。
  * 所有取值对缺失/异常做了兜底，避免 UI 因上游字段缺失而崩溃。
  */
-import type { Valuation, FinancialReport, Symbol } from '@/api';
+import type { Valuation, FinancialReport, Symbol } from '@/data/api';
 
 /** 安全取数：把 unknown 转成 number | null。 */
 function num(v: unknown): number | null {

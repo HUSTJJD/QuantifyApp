@@ -17,7 +17,7 @@ import {
   type OrderType,
   type SubmitResult,
 } from '@/simulation';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 
 export function TradeScreen({
   symbol,

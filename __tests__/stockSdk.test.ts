@@ -11,8 +11,8 @@
  *  5) computeIndicators / computeSignals 在真实数据上不抛错。
  */
 import { computeIndicators, computeSignals, computeIndicatorsByKeys } from '@/lib/stockSdk';
-import { isValidCandle } from '@/api/candleValidity';
-import type { Candle, Symbol } from '@/api/types';
+import { isValidCandle } from '@/data/api/candleValidity';
+import type { Candle, Symbol } from '@/data/api/types';
 
 /** 构造一根符合 Candle 契约的日 K（datetime 为毫秒时间戳） */
 function C(over: Partial<Candle>): Candle {

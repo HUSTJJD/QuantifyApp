@@ -11,7 +11,7 @@
  * 注意：整表序列化意味着每次写入都是 O(总行数)，只适合小数据量回落场景，
  * 不适合真机全市场同步（那正是 SQLite 引擎存在的意义）。
  */
-import type { KlinePeriod, Symbol } from '@/api';
+import type { KlinePeriod, Symbol } from '@/data/api';
 import { AsyncStorageAdapter } from './storage/AsyncStorageAdapter';
 import { KlineRow, symbolKey } from './KlineSchema';
 import type { KlineDatabasePort } from './KlineDatabase';

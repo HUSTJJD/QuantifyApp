@@ -2,7 +2,7 @@
  * MarketDataClient —— 行情数据统一访问门面（Facade）。
  *
  * 设计理念：
- *  - APP 唯一数据访问点，业务层只 import { marketData } from '@/api'
+ *  - APP 唯一数据访问点，业务层只 import { marketData } from '@/data/api'
  *  - 本类只做「门面 / 参数归一化 / 兼容层」，不做调度逻辑
  *  - 所有调度（源选择、兜底、熔断、批量拆分）统一委托给 SourceRouter
  *  - 屏蔽源差异：业务层不需要知道有多少个源、哪个源提供什么能力
@@ -16,8 +16,8 @@
  *        ↓
  *  具体数据源 (hithsa / stock-sdk / ...)
  */
-import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/cache/QuotesCache';
-import { isIndexSymbol } from '@/domain/symbol';
+import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/data/cache/QuotesCache';
+import { isIndexSymbol, sanitizeSymbol, isNonKlineSymbol } from '@/domain/symbol';
 import { getSource, hasSource, listAvailableSources } from './DataSourceRegistry';
 import { SourceRouter, applyMethod } from './SourceRouter';
 import { DataSourceError } from './MarketDataSource';
@@ -44,7 +44,6 @@ import type {
   HistoricalFinancialParams,
   IndicatorsParams,
   FinancialReport,
-  FinancialReportPeriod,
   ProfitForecast,
   IndexInfo,
   IndexTag,
@@ -255,8 +254,10 @@ export class MarketDataClient {
    */
   async getQuotes(symbols: Symbol[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
-    const indices = symbols.filter((s) => isIndexSymbol(s));
-    const stocks = symbols.filter((s) => !isIndexSymbol(s));
+    // 清洗脏代码（sh603986 / hk03986 等前缀混入 code 的历史数据）
+    const cleaned = symbols.map(sanitizeSymbol);
+    const indices = cleaned.filter((s) => isIndexSymbol(s));
+    const stocks = cleaned.filter((s) => !isIndexSymbol(s));
     const partitionBy = (method: 'getQuotes' | 'getIndexQuotes', subset: Symbol[]) =>
       this.router.partition(
         method,
@@ -279,14 +280,24 @@ export class MarketDataClient {
   /**
    * K 线。指数/板块与个股在行情源里走不同端点（且指数无复权语义，
    * adjust 由指数端点自然忽略），这里按标的类型自动分流。
+   * 场内基金 / 期权无个股 K 线契约 → 静默空，避免 LogBox 刷屏。
    */
   async getKline(params: KlineParams): Promise<Candle[]> {
-    const method = isIndexSymbol(params.symbol) ? 'getIndexKline' : 'getKline';
-    return this.call(method, [params]);
+    const symbol = sanitizeSymbol(params.symbol);
+    if (isNonKlineSymbol(symbol)) return [];
+    const method = isIndexSymbol(symbol) ? 'getIndexKline' : 'getKline';
+    return this.call(method, [{ ...params, symbol }]);
   }
 
+  /**
+   * 复权因子。指数/板块无分红送转语义，直接短路返回空，
+   * 避免把指数代码送进个股 corporate-actions 端点触发必败请求。
+   * 场内基金 / 期权同样无复权因子。
+   */
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
-    return this.call('getAdjustmentFactors', [symbol, from, to]);
+    const s = sanitizeSymbol(symbol);
+    if (isIndexSymbol(s) || isNonKlineSymbol(s)) return [];
+    return this.call('getAdjustmentFactors', [s, from, to]);
   }
 
   // ---------- 估值 ----------
@@ -957,7 +968,7 @@ export function getDefaultClient(): MarketDataClient {
   return _defaultClient;
 }
 
-/** APP 全局唯一访问点，业务层统一从这里取数：import { marketData } from '@/api' */
+/** APP 全局唯一访问点，业务层统一从这里取数：import { marketData } from '@/data/api' */
 export const marketData: MarketDataClient = new MarketDataClient();
 
 export { defaultApiConfig };

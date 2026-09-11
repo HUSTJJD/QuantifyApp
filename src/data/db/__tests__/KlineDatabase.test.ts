@@ -20,7 +20,7 @@ jest.mock('@react-native-async-storage/async-storage', () => {
   };
 });
 
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 import { AsyncStorageKlineAdapter } from '../AsyncStorageKlineAdapter';
 import { KlineDatabase } from '../KlineDatabase';
 import type { KlineRow } from '../KlineSchema';

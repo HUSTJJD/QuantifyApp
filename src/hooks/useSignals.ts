@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { TradeSignal } from '@/quant/signals';
 import { getAll } from '@/quant/SignalStore';
-import { quoteFeed } from '@/services/QuoteFeed';
+import { quoteFeed } from '@/data/QuoteFeed';
 
 export function useSignals(): {
   signals: TradeSignal[];

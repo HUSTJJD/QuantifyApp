@@ -10,11 +10,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { apiStats, type SourceStat } from '@/api/ApiStabilityStats';
-import { marketData } from '@/api';
-import type { DataSourceMethod } from '@/api';
+import { apiStats, type SourceStat } from '@/data/api/ApiStabilityStats';
+import { marketData } from '@/data/api';
+import type { DataSourceMethod } from '@/data/api';
 import { colors, spacing, fontSize, radius } from '@/theme';
-import { ALL_METHODS } from '@/api/contract/catalog';
+import { ALL_METHODS } from '@/data/api/contract/catalog';
 
 function successRate(s: SourceStat): number {
   return s.attempts ? (s.successes / s.attempts) * 100 : 0;

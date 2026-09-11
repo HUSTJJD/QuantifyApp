@@ -1,5 +1,5 @@
 import { evaluate } from '../scanner';
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 function mkCandles(closes: number[], volumes: number[]): Candle[] {
   return closes.map((c, i) => ({

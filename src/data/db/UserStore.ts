@@ -11,7 +11,7 @@
  * 避免 UserStore 反向依赖 repositories 造成循环引用。
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import { storage, StorageKeys } from './storage';
 import { getSqlite } from './connection';
 
@@ -32,14 +32,37 @@ export interface AssetSnapshot {
   total: number;
 }
 
+/** 分组类型：static=手动维护；scan/strategy/condition=动态自动解析 */
+export type WatchlistGroupKind = 'static' | 'scan' | 'strategy' | 'condition';
+
+/** 动态分组规则（存 watchlist_group.rule JSON） */
+export interface WatchlistDynamicRule {
+  /** strategy 组：策略档案 id */
+  strategyId?: string;
+  /** strategy 组：信号侧别，默认 buy */
+  side?: 'buy' | 'sell' | 'any';
+  /** condition 组：价格区间（0/缺省=不限） */
+  priceMin?: number;
+  priceMax?: number;
+  /** condition 组：涨跌幅 % 区间 */
+  changePctMin?: number;
+  changePctMax?: number;
+  /** condition 组：筛选范围：watchlist=自选内过滤；signals=有信号的标的 */
+  universe?: 'watchlist' | 'signals';
+}
+
 /** 自选分组 */
 export interface WatchlistGroup {
   /** 分组 id，业务内唯一 */
   id: string;
   /** 分组展示名 */
   name: string;
-  /** 组内标的（去重） */
+  /** 组内标的（动态组为运行时解析结果，不落库） */
   symbols: Symbol[];
+  /** 默认 static */
+  kind?: WatchlistGroupKind;
+  /** 动态组规则 */
+  rule?: WatchlistDynamicRule | null;
 }
 
 /** 分组集合（仓储持久化的整体状态） */
@@ -134,7 +157,7 @@ export class UserStore {
     }
 
     const gres = await db.execute(
-      'SELECT id, name FROM watchlist_group ORDER BY sort ASC',
+      'SELECT id, name, kind, rule FROM watchlist_group ORDER BY sort ASC',
     );
     const groups = (gres.rows ?? []) as Row[];
     if (groups.length === 0 && !(await hasMeta(db, META_SEEDED_GROUPS))) return null;
@@ -151,11 +174,25 @@ export class UserStore {
       byGroup.set(gid, arr);
     }
     return {
-      groups: groups.map((g) => ({
-        id: String(g.id),
-        name: String(g.name),
-        symbols: byGroup.get(String(g.id)) ?? [],
-      })),
+      groups: groups.map((g) => {
+        const kind = (String(g.kind ?? 'static') || 'static') as WatchlistGroupKind;
+        let rule: WatchlistDynamicRule | null = null;
+        if (g.rule) {
+          try {
+            rule = JSON.parse(String(g.rule)) as WatchlistDynamicRule;
+          } catch {
+            rule = null;
+          }
+        }
+        return {
+          id: String(g.id),
+          name: String(g.name),
+          // 动态组不读 item 表（symbols 运行时解析）
+          symbols: kind === 'static' ? (byGroup.get(String(g.id)) ?? []) : [],
+          kind,
+          rule,
+        };
+      }),
     };
   }
 
@@ -173,13 +210,20 @@ export class UserStore {
     if (state.groups.length > 0) {
       await db.executeBatch([
         [
-          'INSERT OR REPLACE INTO watchlist_group (id, name, sort) VALUES (?, ?, ?)',
-          state.groups.map((g, i) => [g.id, g.name, i]),
+          'INSERT OR REPLACE INTO watchlist_group (id, name, sort, kind, rule) VALUES (?, ?, ?, ?, ?)',
+          state.groups.map((g, i) => [
+            g.id,
+            g.name,
+            i,
+            g.kind ?? 'static',
+            g.rule ? JSON.stringify(g.rule) : null,
+          ]),
         ],
       ]);
 
       const items: Scalar[][] = [];
       state.groups.forEach((g) => {
+        if ((g.kind ?? 'static') !== 'static') return; // 动态组不落标的
         g.symbols.forEach((s, i) => {
           items.push([g.id, keyOf(s), s.code, s.exchange, s.name ?? '', i]);
         });

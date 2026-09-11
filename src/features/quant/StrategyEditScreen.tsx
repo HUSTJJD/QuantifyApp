@@ -10,7 +10,7 @@ import { STRATEGIES } from '@/quant/strategies';
 import {
   SESSION_LABELS,
   PERIOD_LABELS,
-  paramSpecsOf,
+  paramGroupsOf,
   createProfileFromTemplate,
   type SignalPeriod,
   type TradeSession,
@@ -75,7 +75,20 @@ export function StrategyEditScreen({
       const first = STRATEGIES.find((s) => !all.some((x) => x.id === s.id));
       if (first) {
         setSelTemplate(first.id);
-        setDraft(createProfileFromTemplate(first.id));
+        const draft0 = createProfileFromTemplate(first.id);
+        // 应用设置页的默认仓位与信号周期
+        try {
+          const { getAppPrefs } = await import('@/settings/appPrefs');
+          const prefs = await getAppPrefs();
+          draft0.trade = {
+            ...draft0.trade,
+            positionRatio: prefs.defaultPositionRatio,
+            period: prefs.defaultSignalPeriod,
+          };
+        } catch {
+          // 读偏好失败用模板默认
+        }
+        setDraft(draft0);
         setName(first.label);
       }
     })().catch(() => undefined);
@@ -88,7 +101,20 @@ export function StrategyEditScreen({
   const selectTemplate = useCallback((tid: string) => {
     setSelTemplate(tid);
     const t = STRATEGIES.find((s) => s.id === tid);
-    setDraft(createProfileFromTemplate(tid));
+    const next = createProfileFromTemplate(tid);
+    import('@/settings/appPrefs')
+      .then(({ getAppPrefs }) => getAppPrefs())
+      .then((prefs) => {
+        setDraft({
+          ...next,
+          trade: {
+            ...next.trade,
+            positionRatio: prefs.defaultPositionRatio,
+            period: prefs.defaultSignalPeriod,
+          },
+        });
+      })
+      .catch(() => setDraft(next));
     setName(t?.label ?? tid);
   }, []);
 
@@ -196,35 +222,51 @@ export function StrategyEditScreen({
           )}
         </Card>
 
-        {/* 买卖信号 */}
+        {/* 买卖信号（按因子分组） */}
         {draft && (
           <>
             <Section title="买入 / 卖出信号" />
-            <Card padded={false}>
-              {paramSpecsOf(draft.templateId).length === 0 ? (
+            {paramGroupsOf(draft.templateId).length === 0 ? (
+              <Card padded={false}>
                 <View style={styles.infoRow}>
-                  <Text style={styles.legend}>
-                    该内核无需参数（如 RSI 固定 14 周期、MACD 12/26/9）。如需调参，可换用「MA 金叉」等带参数的模板。
-                  </Text>
+                  <Text style={styles.legend}>该内核无需用户参数（因子使用内置默认值）。</Text>
                 </View>
-              ) : (
-                paramSpecsOf(draft.templateId).map((spec, i) => (
-                  <Row key={spec.key} label={spec.label} last={i === paramSpecsOf(draft.templateId).length - 1}>
-                    <Stepper
-                      value={draft.params[spec.key] ?? 0}
-                      step={spec.step ?? 1}
-                      min={spec.min ?? 0}
-                      max={spec.max ?? 999}
-                      onChange={(v) => patch((d) => ({ ...d, params: { ...d.params, [spec.key]: v } }))}
-                      colors={colors}
-                    />
-                  </Row>
-                ))
-              )}
-              <View style={styles.infoRow}>
-                <Text style={styles.legend}>信号内核仅决定「何时买 / 何时卖」，仓位与离场风控由止盈止损与交易规则负责。</Text>
-              </View>
-            </Card>
+              </Card>
+            ) : (
+              paramGroupsOf(draft.templateId).map((group, gi, arr) => (
+                <React.Fragment key={group.factorId}>
+                  <View style={styles.factorHead}>
+                    <Text style={styles.factorTitle}>{group.factorLabel}</Text>
+                    <Text style={styles.factorHint}>{group.factorId}</Text>
+                  </View>
+                  <Card padded={false}>
+                    {group.specs.map((spec, i) => (
+                      <Row
+                        key={spec.key}
+                        label={spec.label}
+                        last={i === group.specs.length - 1}
+                      >
+                        <Stepper
+                          value={draft.params[spec.key] ?? 0}
+                          step={spec.step ?? 1}
+                          min={spec.min ?? 0}
+                          max={spec.max ?? 999}
+                          onChange={(v) => patch((d) => ({ ...d, params: { ...d.params, [spec.key]: v } }))}
+                          colors={colors}
+                        />
+                      </Row>
+                    ))}
+                  </Card>
+                  {gi === arr.length - 1 && (
+                    <View style={styles.infoRow}>
+                      <Text style={styles.legend}>
+                        信号内核仅决定「何时买 / 何时卖」，仓位与离场风控由止盈止损与交易规则负责。
+                      </Text>
+                    </View>
+                  )}
+                </React.Fragment>
+              ))
+            )}
           </>
         )}
 
@@ -515,6 +557,16 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     choiceChip: { paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
     choiceText: { color: colors.text, fontSize: fontSize.xs },
     infoRow: { padding: spacing.md },
+    factorHead: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+      paddingHorizontal: spacing.xs,
+    },
+    factorTitle: { color: colors.text, fontSize: fontSize.sm, fontWeight: '600' },
+    factorHint: { color: colors.textSecondary, fontSize: fontSize.xs },
 
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     stepBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },

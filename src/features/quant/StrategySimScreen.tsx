@@ -11,7 +11,7 @@ import type { StrategyProfile } from '@/quant/profile';
 import { strategyAccountRepo } from '@/quant/StrategyEngine';
 import type { SimAccount } from '@/simulation';
 import { toFullCode } from '@/domain';
-import { spacing, fontSize, radius, fontWeight } from '@/theme';
+import { spacing, fontSize, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag } from '@/components';
 

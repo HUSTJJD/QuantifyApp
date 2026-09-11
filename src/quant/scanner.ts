@@ -7,11 +7,11 @@
  * 性能：本地 SQLite 行级读取 + 纯内存计算；全 A 约 5000+ 标的，串行扫描约数秒~数十秒，
  * 建议在后台任务执行并节流回调进度。
  */
-import { database } from '@/db';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
+import { database } from '@/data/db';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
 import { macd, sma, rsi } from '@/quant/indicators';
 import { closes } from '@/quant/indicators';
-import type { Candle, Symbol } from '@/api';
+import type { Candle, Symbol } from '@/data/api';
 
 export interface ScanCriteria {
   /** MACD 金叉：DIF 上穿 DEA */

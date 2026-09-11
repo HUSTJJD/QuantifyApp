@@ -4,9 +4,9 @@
  * 使用市价单（以参考现价成交）。纯异步服务，UI 层调用后拿到成交结果。
  * 跟单成功可选拉起同花顺详情页（openThsAfterFollow，默认 true）。
  */
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import type { SignalSide } from '@/quant/strategies';
-import { quantStore } from '@/db/QuantStore';
+import { quantStore } from '@/data/db/QuantStore';
 import { openThsDetail } from '@/utils/thsDeepLink';
 import { SimAccountRepo } from './SimAccount';
 import { roundShare, type SubmitResult } from './engine';

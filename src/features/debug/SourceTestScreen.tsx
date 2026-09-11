@@ -14,18 +14,18 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getSource, marketData } from '@/api';
-import type { MarketDataSource } from '@/api';
-import type { SourceProbeResult } from '@/api/MarketDataClient';
-import { apiStats } from '@/api/ApiStabilityStats';
-import { auditSource } from '@/api/contract/audit';
+import { getSource, marketData } from '@/data/api';
+import type { MarketDataSource } from '@/data/api';
+import type { SourceProbeResult } from '@/data/api/MarketDataClient';
+import { apiStats } from '@/data/api/ApiStabilityStats';
+import { auditSource } from '@/data/api/contract/audit';
 import {
   METHOD_CATALOG,
   catalogByGroup,
   METHOD_GROUP_TITLES,
   type MethodCatalogEntry,
-} from '@/api/contract/catalog';
-import { expectationOf } from '@/api/contract/expectations';
+} from '@/data/api/contract/catalog';
+import { expectationOf } from '@/data/api/contract/expectations';
 import { colors, spacing, fontSize, radius } from '@/theme';
 
 type RowResult = SourceProbeResult & { state: 'idle' | 'running' | 'done' };

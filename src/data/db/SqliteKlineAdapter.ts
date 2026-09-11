@@ -21,7 +21,7 @@
  *   - transaction(tx => Promise<void>)：tx.execute / commit 为异步，rollback 同步。
  */
 import type { DB, QueryResult, Scalar } from '@op-engineering/op-sqlite';
-import type { KlinePeriod, Symbol } from '@/api';
+import type { KlinePeriod, Symbol } from '@/data/api';
 import { KlineRow, symbolKey } from './KlineSchema';
 import type { KlineDatabasePort } from './KlineDatabase';
 import { getSqlite } from './connection';

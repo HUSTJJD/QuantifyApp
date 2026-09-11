@@ -5,9 +5,9 @@
  *  - 从未写入过 → 返回 null（调用方据此给默认自选/默认分组）；
  *  - 写入过空列表 → 返回 []（用户清空自选后不应又被塞回默认自选）。
  */
-import { userStore } from '@/db/UserStore';
-import { storage, StorageKeys } from '@/db/storage';
-import type { Symbol } from '@/api';
+import { userStore } from '@/data/db/UserStore';
+import { storage, StorageKeys } from '@/data/db/storage';
+import type { Symbol } from '@/data/api';
 
 const A: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 const B: Symbol = { code: '000858', exchange: 'SZ', name: '五粮液' };

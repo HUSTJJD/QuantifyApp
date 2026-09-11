@@ -71,13 +71,12 @@ import type {
   CashFlowStatement,
   FinancialIndicator,
   FinancialReport,
-  ProfitForecast,
   HistoricalFinancialParams,
   IndicatorsParams,
   Exchange,
   AssetType,
 } from '../types';
-import { toThsCode, fromThsCode, marketOf, parseSymbol } from '@/domain/symbol';
+import { toThsCode, fromThsCode, marketOf, parseSymbol, isIndexSymbol } from '@/domain/symbol';
 import { cleanCandles } from '../candleValidity';
 import { register } from '../DataSourceRegistry';
 import { HithsaHttpClient } from './HithsaHttpClient';
@@ -342,18 +341,25 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
     // 指数/板块/港股美股无复权因子
-    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+    if (isIndexSymbol(symbol) || symbol.exchange === 'HK' || symbol.exchange === 'US') {
       return [];
     }
-    const res = await this.guard(
-      this.get().aShare.corporateActions.adjustmentFactors({
-        thscode: toThsCode(symbol),
-        from,
-        to,
-      }),
-      '同花顺复权因子失败',
-    );
-    return (res.data?.item ?? []).map((it) => {
+    let res: any;
+    try {
+      res = await this.guard(
+        this.get().aShare.corporateActions.adjustmentFactors({
+          thscode: toThsCode(symbol),
+          from,
+          to,
+        }),
+        '同花顺复权因子失败',
+      );
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (/No adjustment events|empty|无复权/i.test(m)) return [];
+      throw e;
+    }
+    return ((res.data?.item ?? []) as any[]).map((it: any) => {
       // SDK 类型定义缺少配股字段，但官方端点实际会返回；
       // 以交叉类型窄化保留运行时透传，避免类型缺口。
       const raw = it as typeof it & { allotment_ratio?: number; allotment_price?: number };
@@ -632,24 +638,37 @@ export class FuyaoApiSource extends BaseMarketDataSource {
    * ── 字段：thscode/name/last_price/price_change_ratio_pct/first_limit_time/last_limit_time/turnover_ratio_pct
    */
   async getLimitDownPool(opts?: { dateMs?: number; page?: number; size?: number }): Promise<ListResult<LimitDownStock>> {
+    // 首页情绪条只要 total 时仍传 size=1；上游若不回 total，需至少拿到真实条数。
+    // 这里 size 缺省给 100，保证 items.length 可近似 total（跌停家数通常 < 100）。
     const res = await this.guard(
       this.get().specialData.limitDownPool({
         dateMs: opts?.dateMs,
         page: opts?.page,
-        size: opts?.size,
+        size: opts?.size ?? 100,
       }),
       '同花顺跌停池失败',
     );
+    const items = (res.data?.item ?? []).map((d) => ({
+      symbol: fromThsCode(d.thscode),
+      name: d.name,
+      lastPrice: d.last_price,
+      changePct: d.price_change_ratio_pct,
+      firstLimitTime: d.first_limit_time ?? undefined,
+      lastLimitTime: d.last_limit_time ?? undefined,
+      turnoverRatioPct: d.turnover_ratio_pct ?? null,
+    }));
+    const total =
+      (res.data as { total?: number } | undefined)?.total ??
+      (res.data as { count?: number } | undefined)?.count ??
+      items.length;
     return {
-      items: (res.data?.item ?? []).map((d) => ({
-        symbol: fromThsCode(d.thscode),
-        name: d.name,
-        lastPrice: d.last_price,
-        changePct: d.price_change_ratio_pct,
-        firstLimitTime: d.first_limit_time ?? undefined,
-        lastLimitTime: d.last_limit_time ?? undefined,
-        turnoverRatioPct: d.turnover_ratio_pct ?? null,
-      })),
+      items,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size: opts?.size ?? 100,
+        pages: Math.max(1, Math.ceil(total / (opts?.size ?? 100))),
+      },
     };
   }
 
@@ -817,21 +836,33 @@ export class FuyaoApiSource extends BaseMarketDataSource {
       }),
       '同花顺涨停池失败',
     );
+    const items = (res.data?.item ?? []).map((d) => ({
+      symbol: fromThsCode(d.thscode),
+      name: d.name,
+      isSt: Boolean(d.is_st),
+      isNew: Boolean(d.is_new),
+      lastPrice: d.last_price,
+      changePct: d.price_change_ratio_pct,
+      limitUpTime: d.limit_up_time ?? '',
+      limitUpReason: d.limit_up_reason ?? '',
+      continueDayText: d.continue_day_text ?? '',
+      continueDayCnt: d.continue_day_cnt,
+      sealMoney: d.seal_money,
+      maxSealMoney: d.max_seal_money,
+    }));
+    const total =
+      (res.data as { total?: number } | undefined)?.total ??
+      (res.data as { count?: number } | undefined)?.count ??
+      items.length;
+    const size = opts?.size ?? Math.max(items.length, 1);
     return {
-      items: (res.data?.item ?? []).map((d) => ({
-        symbol: fromThsCode(d.thscode),
-        name: d.name,
-        isSt: Boolean(d.is_st),
-        isNew: Boolean(d.is_new),
-        lastPrice: d.last_price,
-        changePct: d.price_change_ratio_pct,
-        limitUpTime: d.limit_up_time ?? '',
-        limitUpReason: d.limit_up_reason ?? '',
-        continueDayText: d.continue_day_text ?? '',
-        continueDayCnt: d.continue_day_cnt,
-        sealMoney: d.seal_money,
-        maxSealMoney: d.max_seal_money,
-      })),
+      items,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size,
+        pages: Math.max(1, Math.ceil(total / size)),
+      },
     };
   }
 

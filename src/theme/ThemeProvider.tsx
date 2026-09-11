@@ -3,7 +3,7 @@
  * 持久化到本地存储，重启保持。业务页通过 useAppTheme() 取色。
  */
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, type ReactNode } from 'react';
-import { storage, StorageKeys } from '@/db/storage';
+import { storage, StorageKeys } from '@/data/db/storage';
 import { getColors, DarkColors, type ColorScheme, type ThemeMode } from './index';
 
 interface ThemeCtx {

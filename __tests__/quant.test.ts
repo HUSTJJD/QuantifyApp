@@ -4,8 +4,8 @@
  */
 import { sma, ema, rsi, macd, closes, bollinger, stdev, volumes } from '@/quant/indicators';
 import { computeSignal } from '@/quant/signals';
-import { STRATEGIES, activeStrategies, type StrategyConfig } from '@/quant/strategies';
-import type { Candle } from '@/api';
+import { STRATEGIES, type StrategyConfig } from '@/quant/strategies';
+import type { Candle } from '@/data/api';
 
 function candle(close: number, i: number, volume = 1000): Candle {
   return { datetime: i, open: close, high: close, low: close, close, volume };
@@ -149,8 +149,8 @@ describe('signals', () => {
     };
     const sig = computeSignal({ code: 'W', exchange: 'SH' }, cs, null, boosted);
     expect(sig.strength).toBe(3); // 2×2=4 被钳制到 3
-    const c = sig.contributions.find((c) => c.id === 'trend_confirm');
-    expect(c?.weight).toBe(2);
-    expect(c?.strength).toBe(2);
+    const contrib = sig.contributions.find((x) => x.id === 'trend_confirm');
+    expect(contrib?.weight).toBe(2);
+    expect(contrib?.strength).toBe(2);
   });
 });

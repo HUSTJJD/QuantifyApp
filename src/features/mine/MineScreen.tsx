@@ -11,7 +11,7 @@ import { spacing, fontSize, fontWeight, radius } from '@/theme';
 import { Card, Section } from '@/components';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
-import { BRAND } from '@/brand';
+import { BRAND } from '@/theme/brand';
 
 export function MineScreen({
   onOpenAsset,
@@ -20,6 +20,8 @@ export function MineScreen({
   onOpenApiStats,
   onOpenBacktest,
   onOpenScanner,
+  onOpenWorkflow,
+  onOpenAlertRules,
 }: {
   onOpenAsset: () => void;
   onOpenSettings: () => void;
@@ -27,6 +29,8 @@ export function MineScreen({
   onOpenApiStats: () => void;
   onOpenBacktest: () => void;
   onOpenScanner?: () => void;
+  onOpenWorkflow?: () => void;
+  onOpenAlertRules?: () => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -48,6 +52,9 @@ export function MineScreen({
       <Section title="我的" />
 
       <MenuLink icon={Icons.wallet} title="我的资产" desc="持仓与资产走势" onPress={onOpenAsset} colors={colors} />
+      {onOpenAlertRules && (
+        <MenuLink icon={Icons.bell} title="盯盘告警" desc="价格/指标/策略信号提醒" onPress={onOpenAlertRules} colors={colors} />
+      )}
       <MenuLink icon={Icons.cog} title="设置" desc="主题 · 数据源 · API Key" onPress={onOpenSettings} colors={colors} />
 
       <Section title="诊断" />
@@ -58,6 +65,9 @@ export function MineScreen({
       <MenuLink icon={Icons.chart} title="策略回测" desc="历史回放 · 绩效评估" onPress={onOpenBacktest} colors={colors} />
       {onOpenScanner && (
         <MenuLink icon={Icons.search} title="全市场扫描" desc="基于本地库筛选 MACD 金叉等" onPress={onOpenScanner} colors={colors} />
+      )}
+      {onOpenWorkflow && (
+        <MenuLink icon={Icons.strategy} title="工作流" desc="候选池 → 信号 → 批量跟单" onPress={onOpenWorkflow} colors={colors} />
       )}
     </ScrollView>
   );

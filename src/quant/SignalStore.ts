@@ -2,19 +2,19 @@
  * 信号存储：内存热缓存 + SQLite trade_signal 表。
  * 行情刷新后由 SignalEngine 算出信号写入；UI 通过 getLatest/getAll 读取。
  */
-import { quantStore } from '@/db/QuantStore';
-import type { Symbol } from '@/api';
+import { quantStore } from '@/data/db/QuantStore';
+import type { Symbol } from '@/data/api';
 import { toFullCode } from '@/domain';
 import type { TradeSignal } from './signals';
 import type { StrategyConfig } from './strategies';
-import { storage, StorageKeys } from '@/db/storage';
+import { storage, StorageKeys } from '@/data/db/storage';
 
 /** 内存热表（避免每次读盘）。 */
 const memory = new Map<string, TradeSignal>();
 
 export function saveSignal(sig: TradeSignal): void {
   memory.set(sig.symbolKey, sig);
-  void quantStore()
+  quantStore()
     .upsertSignal({
       symbolKey: sig.symbolKey,
       code: sig.symbol.code,

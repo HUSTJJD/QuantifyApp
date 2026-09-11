@@ -1,18 +1,23 @@
 /**
- * 回测历史数据加载器（方向5：历史数据加载器）。
+ * 回测历史数据加载器（可信取数链路）。
  *
- * 把"拉 K 线 → 规整 → 喂给回测引擎"这段流程收敛成可复用、可测试的能力：
- *  - 纯函数 `prepareCandles`：去重 + 升序排序 + 区间裁剪 + 最少 bar 数校验。
- *  - 异步 `loadBacktestCandles`：按 symbol/周期/区间拉取，必要时向前翻页补齐到 startMs，
- *    返回升序蜡烛（回测引擎要求时间递增）。
- *  - 便捷 `runBacktestOnSymbol`：拉数 + 规整 + runBacktest 一气呵成。
+ * 架构原则（与 openspec backtest-trust 一致）：
+ *  - **禁止用上游「已复权价」直接回测**。网络请求一律 `adjust: 'none'`。
+ *  - 复权 = 本地「不复权 K 线 + 复权因子」合成（`adjustCandles`），默认前复权以得到连续序列。
+ *  - 优先本地库（`getCandlesLocal`），本地无日K时再走网络兜底（仍取不复权）。
  *
- * 不绑定具体网络库：fetcher 默认走 marketData.getKline，可注入以便测试。
+ * 能力：
+ *  - `prepareCandles`：去重 + 升序 + 区间裁剪 + 最少 bar 校验
+ *  - `loadBacktestCandles`：只取不复权升序蜡烛
+ *  - `loadBacktestSeries`：不复权 + 本地因子合成，返回可回测序列与来源元数据
+ *  - `runBacktestOnSymbol`：取数 + 规整 + 复权 + runBacktest
  */
-import { marketData } from '@/api';
-import type { Candle, Symbol, KlinePeriod, AdjustMode } from '@/api';
+import { marketData } from '@/data/api';
+import type { Candle, Symbol, KlinePeriod, AdjustMode } from '@/data/api';
 import { runBacktest, type BacktestResult, type BacktestOptions } from './backtest';
 import type { Strategy } from './strategies';
+import { adjustCandles, type AdjustmentFactorInput } from './adjustment';
+import { getCandlesLocal, getAdjustFactorsLocal } from '@/data/db/KlineReader';
 
 export interface PrepareOptions {
   /** 最少 bar 数（少于则 ok=false）。默认 30。 */
@@ -66,6 +71,10 @@ export interface LoadCandlesOptions {
   count?: number;
   startMs?: number;
   endMs?: number;
+  /**
+   * @deprecated 网络取数强制不复权。保留字段仅为兼容旧调用方；
+   * 复权请走 `loadBacktestSeries`（本地因子合成）。
+   */
   adjust?: AdjustMode;
   /** 注入 fetcher（测试用），默认 marketData.getKline */
   fetchKline?: (p: {
@@ -87,8 +96,8 @@ function dedupePrepend(acc: Candle[], more: Candle[]): Candle[] {
 }
 
 /**
- * 异步：拉取某标的回测用历史 K 线（升序）。
- * 若指定 startMs，会向前翻页直到最早一根早于 startMs 或达到 maxPages。
+ * 异步：拉取某标的回测用**不复权**历史 K 线（升序）。
+ * 无论 opts.adjust 传什么，网络层一律 `adjust: 'none'`——已复权价禁止直接进回测。
  */
 export async function loadBacktestCandles(
   symbol: Symbol,
@@ -102,7 +111,15 @@ export async function loadBacktestCandles(
   let acc: Candle[] = [];
   let cursorEndMs: number | undefined = opts.endMs;
   for (let page = 0; page < maxPages; page++) {
-    const slice = await fetch({ symbol, period, count, startMs: undefined, endMs: cursorEndMs, adjust: opts.adjust });
+    const slice = await fetch({
+      symbol,
+      period,
+      count,
+      startMs: undefined,
+      endMs: cursorEndMs,
+      // 可信链路：永远取不复权，复权在本地合成
+      adjust: 'none',
+    });
     if (!slice || slice.length === 0) break;
     acc = dedupePrepend(acc, slice);
     const earliest = acc[0];
@@ -116,18 +133,143 @@ export async function loadBacktestCandles(
   return acc.sort((a, b) => timeOf(a) - timeOf(b));
 }
 
-export interface RunBacktestOnSymbolOptions extends LoadCandlesOptions, PrepareOptions, BacktestOptions {}
+export interface BacktestSeries {
+  /** 用于回测的 K 线（已按 adjust 合成；默认前复权连续序列） */
+  candles: Candle[];
+  /** 实际使用的复权模式 */
+  adjustMode: AdjustMode;
+  /** 是否使用了本地复权因子 */
+  usedLocalFactors: boolean;
+  /** 原始不复权序列（便于对照 / 成交价换算） */
+  raw: Candle[];
+  /** 原始K线来源 */
+  source: 'local' | 'network';
+  /** 参与合成的因子事件数 */
+  factorCount: number;
+  /** 本地复权因子原样（供 raw-events 公司行为回放） */
+  factors: AdjustmentFactorInput[];
+  /** 人可读说明（UI 提示） */
+  note: string;
+}
+
+export interface LoadBacktestSeriesOptions extends LoadCandlesOptions {
+  /**
+   * 复权模式：
+   * - forward（默认）：本地因子合成前复权连续序列
+   * - backward：后复权
+   * - none：不复权原样
+   * - raw-events：返回不复权 + factors，由 runBacktest 按除权日调仓（推荐严格回放）
+   */
+  adjustMode?: AdjustMode | 'raw-events';
+  /** 注入本地读数（测试用） */
+  loadLocal?: (symbol: Symbol, period: KlinePeriod) => Promise<Candle[] | null>;
+  loadFactors?: (symbol: Symbol) => Promise<AdjustmentFactorInput[]>;
+}
 
 /**
- * 便捷：拉历史 → 规整 → 跑回测。返回 null 表示数据不足（配置失败）。
+ * 可信取数：不复权 K 线 + 本地复权因子 → 合成可回测序列。
+ * 本地无日K时回退网络（仍不复权）；无因子时序列=不复权原样。
+ */
+export async function loadBacktestSeries(
+  symbol: Symbol,
+  opts: LoadBacktestSeriesOptions = {},
+): Promise<BacktestSeries> {
+  const period = opts.period ?? 'day';
+  const mode = opts.adjustMode ?? 'forward';
+  const adjustMode: AdjustMode = mode === 'raw-events' ? 'none' : mode;
+  const loadLocal = opts.loadLocal ?? ((s, p) => getCandlesLocal(s, p, 'none'));
+  const loadFactors = opts.loadFactors ?? ((s) => getAdjustFactorsLocal(s));
+
+  let raw: Candle[] = [];
+  let source: 'local' | 'network' = 'local';
+  try {
+    const local = await loadLocal(symbol, period);
+    if (local && local.length > 0) {
+      raw = local;
+    } else {
+      source = 'network';
+      raw = await loadBacktestCandles(symbol, opts);
+    }
+  } catch {
+    source = 'network';
+    raw = await loadBacktestCandles(symbol, opts);
+  }
+
+  // 分钟级/指数无因子时 loadFactors 可能抛错——视为 0 因子
+  let factors: AdjustmentFactorInput[] = [];
+  try {
+    factors = (await loadFactors(symbol)) ?? [];
+  } catch {
+    factors = [];
+  }
+
+  // 区间裁剪（在复权前裁，保证系数与 bar 对齐）
+  const preparedRaw = prepareCandles(raw, {
+    minBars: 0,
+    startMs: opts.startMs,
+    endMs: opts.endMs,
+  });
+  const base = preparedRaw.candles;
+
+  // raw-events：序列保持不复权，因子交给回放引擎
+  const isRawEvents = mode === 'raw-events';
+  const candles =
+    isRawEvents || adjustMode === 'none' || factors.length === 0
+      ? base
+      : adjustCandles(base, factors, adjustMode);
+
+  const usedLocalFactors = !isRawEvents && adjustMode !== 'none' && factors.length > 0;
+  const modeLabel = isRawEvents
+    ? '不复权+除权事件'
+    : adjustMode === 'forward'
+      ? '前复权'
+      : adjustMode === 'backward'
+        ? '后复权'
+        : '不复权';
+  const note = isRawEvents
+    ? factors.length > 0
+      ? `${modeLabel}（本地因子 ×${factors.length}，除权日调现金/股数；源：${source === 'local' ? '本地库' : '网络'}）`
+      : `${modeLabel}（无本地因子，等同不复权；源：${source === 'local' ? '本地库' : '网络'}）`
+    : usedLocalFactors
+      ? `${modeLabel}（本地因子 ×${factors.length}，不复权源：${source === 'local' ? '本地库' : '网络'}）`
+      : `${modeLabel}（无本地复权因子，按不复权回放；源：${source === 'local' ? '本地库' : '网络'}）`;
+
+  return {
+    candles,
+    adjustMode: isRawEvents ? 'none' : adjustMode,
+    usedLocalFactors,
+    raw: base,
+    source,
+    factorCount: factors.length,
+    factors,
+    note,
+  };
+}
+
+export interface RunBacktestOnSymbolOptions
+  extends LoadBacktestSeriesOptions,
+    PrepareOptions,
+    BacktestOptions {}
+
+/**
+ * 便捷：不复权取数 → 本地复权合成（或 raw-events 公司行为）→ 规整 → 跑回测。
+ * 返回 null 表示数据不足（配置失败）。
  */
 export async function runBacktestOnSymbol(
   strategy: Strategy,
   symbol: Symbol,
   opts: RunBacktestOnSymbolOptions = {},
 ): Promise<BacktestResult | null> {
-  const candles = await loadBacktestCandles(symbol, opts);
-  const prepared = prepareCandles(candles, { minBars: opts.minBars, startMs: opts.startMs, endMs: opts.endMs });
+  const series = await loadBacktestSeries(symbol, opts);
+  const prepared = prepareCandles(series.candles, {
+    minBars: opts.minBars,
+    startMs: opts.startMs,
+    endMs: opts.endMs,
+  });
   if (!prepared.ok) return null;
-  return runBacktest(strategy, prepared.candles, opts);
+  const useRawEvents = opts.adjustMode === 'raw-events';
+  return runBacktest(strategy, prepared.candles, {
+    ...opts,
+    corporateActions: useRawEvents ? series.factors : opts.corporateActions,
+  });
 }

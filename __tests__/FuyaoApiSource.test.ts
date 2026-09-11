@@ -2,9 +2,9 @@
  * FuyaoApiSource 单元测试：验证 SDK 类型化调用 + 字段归一化 + 错误归一化。
  * mock @opptrix/fuyao 的 FuyaoClient，不发起真实网络。
  */
-import { FuyaoApiSource } from '@/api/sources/FuyaoApiSource';
+import { FuyaoApiSource } from '@/data/api/sources/FuyaoApiSource';
 import { FuyaoApiError } from '@opptrix/fuyao';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 

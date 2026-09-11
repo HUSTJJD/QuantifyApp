@@ -2,11 +2,11 @@
  * 全市场扫描引擎单测。
  * 验证：基于本地库遍历、MACD 金叉/均线多头/RSI 区间/涨幅筛选、进度回调。
  */
-import { database, resetDatabase } from '@/db';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
+import { database, resetDatabase } from '@/data/db';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
 import { scanMarket } from '@/quant/scanner';
 import { macd } from '@/quant/indicators';
-import type { Candle, Symbol } from '@/api';
+import type { Candle, Symbol } from '@/data/api';
 
 const SYM_A: Symbol = { code: '600519', exchange: 'SH' };
 const SYM_B: Symbol = { code: '000001', exchange: 'SZ' };

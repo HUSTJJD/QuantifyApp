@@ -10,8 +10,8 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { marketData } from '@/api';
-import type { IndexInfo, Quote, IndexTag } from '@/api';
+import { marketData } from '@/data/api';
+import type { IndexInfo, Quote, IndexTag } from '@/data/api';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { toFullCode } from '@/domain';

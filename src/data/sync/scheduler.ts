@@ -8,9 +8,9 @@
  *   手动同步（设置页）传 force=true 仍强制执行。
  * - 后台同步失败静默（不阻塞 UI），进度走 logger。
  */
-import type { KlinePeriod } from '@/api';
+import type { KlinePeriod } from '@/data/api';
 import { syncDaily, SyncProgress } from './MarketSync';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
 import { logger } from '@/utils/logger';
 
 const log = logger.withScope('SyncScheduler');

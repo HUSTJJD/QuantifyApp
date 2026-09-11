@@ -12,7 +12,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import { BRAND } from '@/brand';
+import { BRAND } from '@/theme/brand';
 import { fontSize, fontWeight, zIndex } from '@/theme';
 
 /** 启动页固定色板（与主题解耦）。 */
@@ -225,7 +225,6 @@ export function SplashScreen({ onFinish, duration = 1600 }: Props): React.JSX.El
                 const a = candles[i];
                 return (
                   <Animated.View
-                    // eslint-disable-next-line react/no-array-index-key
                     key={i}
                     style={[
                       styles.candleCol,
@@ -262,7 +261,6 @@ export function SplashScreen({ onFinish, duration = 1600 }: Props): React.JSX.El
       <View style={[styles.dots, { bottom: insets.bottom + 48 }]}>
         {dots.map((d, i) => (
           <Animated.View
-            // eslint-disable-next-line react/no-array-index-key
             key={i}
             style={[
               styles.dot,

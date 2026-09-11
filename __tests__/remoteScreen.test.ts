@@ -2,7 +2,7 @@
  * 远程选股纯筛选逻辑单测（不联网）。
  */
 import { filterFundFlowRows } from '@/quant/remoteScreen';
-import type { FundsFlowingItem } from '@/api';
+import type { FundsFlowingItem } from '@/data/api';
 
 const row = (
   code: string,

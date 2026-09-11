@@ -4,11 +4,11 @@
  * - syncKlineIncremental：增量写库、防抖跳过、失败计数
  * mock marketData 单例与 database() 内存引擎（jest 下回落 AsyncStorage）。
  */
-import { marketData } from '@/api';
-import { database, resetDatabase } from '@/db';
-import { MarketMetaStore } from '@/db/MarketMetaStore';
-import { syncKlineIncremental, syncTickers, MIN_SYNC_INTERVAL_MS, INCREMENTAL_COUNT } from '@/sync/MarketSync';
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import { marketData } from '@/data/api';
+import { database, resetDatabase } from '@/data/db';
+import { MarketMetaStore } from '@/data/db/MarketMetaStore';
+import { syncKlineIncremental, syncTickers, MIN_SYNC_INTERVAL_MS, INCREMENTAL_COUNT } from '@/data/sync/MarketSync';
+import type { Candle, Symbol } from '@/data/api';
 
 const SYM_A: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 const SYM_B: Symbol = { code: '000001', exchange: 'SZ', name: '平安银行' };
@@ -45,16 +45,18 @@ describe('syncTickers 分页拉取全市场标的', () => {
   });
 
   it('分页聚合：2 页各 1000 条', async () => {
-    const page = (n: number) =>
+    const page = (n: number, start: number) =>
       Array.from({ length: n }, (_, i) => ({
-        symbol: { code: String(600000 + i), exchange: 'SH' as const },
-        name: `股票${i}`,
+        symbol: { code: String(start + i), exchange: 'SH' as const },
+        name: `股票${start + i}`,
         assetType: 'a-share' as const,
         market: 'A' as const,
       }));
     const spy = jest
       .spyOn(marketData, 'listTickers')
-      .mockImplementation(async (opts) => (opts?.offset === 0 ? page(1000) : page(500)));
+      .mockImplementation(async (opts) =>
+        opts?.offset === 0 ? page(1000, 600000) : page(500, 601000),
+      );
     const n = await syncTickers();
     expect(spy).toHaveBeenCalledTimes(2);
     expect(n).toBe(1500);

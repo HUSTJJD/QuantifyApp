@@ -7,11 +7,11 @@
  *  3. SourceRouter：并发同形 invoke / partition 只触发一次底层源调用；
  *     不同参数 / coalesce=false 时各自独立执行（不过度合并）。
  */
-import { SourceRouter } from '@/api/SourceRouter';
-import type { MarketDataSource } from '@/api/MarketDataSource';
-import { InflightCoalescer, stableStringify } from '@/api/coalesce';
-import { apiStats } from '@/api/ApiStabilityStats';
-import type { Quote, Symbol } from '@/api/types';
+import { SourceRouter } from '@/data/api/SourceRouter';
+import type { MarketDataSource } from '@/data/api/MarketDataSource';
+import { InflightCoalescer, stableStringify } from '@/data/api/coalesce';
+import { apiStats } from '@/data/api/ApiStabilityStats';
+import type { Quote, Symbol } from '@/data/api/types';
 
 const SH: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 const SZ: Symbol = { code: '000001', exchange: 'SZ', name: '平安银行' };

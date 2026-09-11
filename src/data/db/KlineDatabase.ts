@@ -7,7 +7,7 @@
  * KlineHotIndex：内存 LRU 索引，盯盘同屏多标的时，重复读取命中内存而非落盘——
  * 这是"同屏盯盘不卡"的关键。落盘写入后同步刷新热索引；冷数据按 LRU 淘汰。
  */
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 import {
   candlesToRows,
   KlineRow,

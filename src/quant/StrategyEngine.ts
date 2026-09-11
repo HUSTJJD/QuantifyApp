@@ -12,10 +12,10 @@
  * 引擎在 App 启动时随 SignalEngine 一起启动；止损/止盈数值来自策略档案，
  * 用户在编辑器改完即时生效（每次 tick 重读档案）。
  */
-import { marketData } from '@/api';
-import type { Candle, Quote, Symbol } from '@/api';
-import { quoteFeed } from '@/services/QuoteFeed';
-import { getGroups } from '@/repositories/WatchlistRepository';
+import { marketData } from '@/data/api';
+import type { Candle, Quote, Symbol } from '@/data/api';
+import { quoteFeed } from '@/data/QuoteFeed';
+import { getGroups } from '@/data/repositories/WatchlistRepository';
 import { createAccountRepo, type AccountRepo, type SimAccount } from '@/simulation';
 import { toFullCode } from '@/domain';
 import {

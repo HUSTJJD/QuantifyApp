@@ -1,7 +1,7 @@
 /**
  * 多因子策略框架单测：因子语义、规则引擎、内置模板。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { FACTORS, getFactor, defaultFactorParams } from '@/strategies/factors';
 import { evaluateStrategy } from '@/strategies/engine';
 import { STRATEGY_TEMPLATES, DEFAULT_TEMPLATE_ID, getTemplate } from '@/strategies/templates';

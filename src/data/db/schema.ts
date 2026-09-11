@@ -78,11 +78,13 @@ export const DDL_STATEMENTS: readonly string[] = [
   PRIMARY KEY (symbol)
 )`,
 
-  // 自选分组
+  // 自选分组（kind/rule 支持动态分组：scan/strategy/condition）
   `CREATE TABLE IF NOT EXISTS watchlist_group (
   id   TEXT NOT NULL,
   name TEXT NOT NULL,
   sort INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'static',
+  rule TEXT,
   PRIMARY KEY (id)
 )`,
 
@@ -1063,15 +1065,119 @@ export const DDL_STATEMENTS: readonly string[] = [
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (dedupe_key)
 )`,
+
+  // 扫描快照：每次全市场扫描落一条头部 + N 条命中明细
+  `CREATE TABLE IF NOT EXISTS scan_snapshot (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  criteria    TEXT NOT NULL,
+  total       INTEGER NOT NULL,
+  hit_count   INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_scan_snapshot_created ON scan_snapshot(created_at DESC)`,
+
+  // 扫描命中明细（候选池）
+  `CREATE TABLE IF NOT EXISTS scan_hit (
+  snapshot_id INTEGER NOT NULL,
+  code        TEXT NOT NULL,
+  exchange    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  reasons     TEXT NOT NULL,
+  last_close  REAL NOT NULL,
+  change_pct  REAL,
+  metrics     TEXT NOT NULL,
+  PRIMARY KEY (snapshot_id, code, exchange)
+)`,
 ];
 
 /**
  * 幂等建库建表。无历史库、无版本迁移：每次启动执行 CREATE TABLE IF NOT EXISTS。
+ *
+ * 额外做「缺列修复」：旧版本建过同名表但列不全时，CREATE IF NOT EXISTS 不会补列，
+ * 后续 INSERT/SELECT name 等列会报 no such column。这里用 PRAGMA table_info 检查，
+ * 缺列则 ALTER TABLE ADD COLUMN（开发期语义：保数据、补结构）。
  */
+const COLUMN_REPAIRS: Array<{ table: string; columns: Array<{ name: string; ddl: string }> }> = [
+  {
+    table: 'tickers',
+    columns: [
+      { name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" },
+      { name: 'assetType', ddl: "TEXT NOT NULL DEFAULT ''" },
+    ],
+  },
+  {
+    table: 'watchlist',
+    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
+  },
+  {
+    table: 'watchlist_group',
+    columns: [
+      { name: 'kind', ddl: "TEXT NOT NULL DEFAULT 'static'" },
+      { name: 'rule', ddl: 'TEXT' },
+    ],
+  },
+  {
+    table: 'watchlist_group_item',
+    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
+  },
+  {
+    table: 'holding',
+    columns: [
+      { name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" },
+      { name: 'shares', ddl: 'REAL NOT NULL DEFAULT 0' },
+      { name: 'cost_price', ddl: 'REAL NOT NULL DEFAULT 0' },
+    ],
+  },
+  {
+    table: 'scan_hit',
+    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
+  },
+  {
+    table: 'stock_info',
+    columns: [
+      { name: 'name', ddl: 'TEXT' },
+      { name: 'industry', ddl: 'TEXT' },
+    ],
+  },
+  {
+    table: 'index_catalog',
+    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
+  },
+  {
+    table: 'index_constituent',
+    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
+  },
+];
+
+async function repairMissingColumns(db: DB): Promise<void> {
+  for (const { table, columns } of COLUMN_REPAIRS) {
+    let info;
+    try {
+      info = await db.execute(`PRAGMA table_info(${table})`);
+    } catch {
+      continue; // 表不存在等异常跳过，由后续查询自然暴露
+    }
+    const have = new Set(
+      ((info.rows ?? []) as Array<Record<string, unknown>>).map((r) => String(r.name ?? '')),
+    );
+    if (have.size === 0) continue; // 表不存在
+    for (const col of columns) {
+      if (have.has(col.name)) continue;
+      try {
+        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.ddl}`);
+      } catch {
+        // 并发/只读失败不阻断启动
+      }
+    }
+  }
+}
+
 export async function applySchema(db: DB): Promise<void> {
   await db.transaction(async (tx) => {
     for (const ddl of DDL_STATEMENTS) {
       await tx.execute(ddl);
     }
   });
+  await repairMissingColumns(db);
 }

@@ -14,9 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SearchBar } from '@/components/ui/SearchBar';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
-import { marketData } from '@/api';
-import type { Instrument, Symbol } from '@/api';
-import { storage, StorageKeys } from '@/db/storage';
+import { marketData } from '@/data/api';
+import type { Instrument, Symbol } from '@/data/api';
+import { storage, StorageKeys } from '@/data/db/storage';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { toFullCode } from '@/domain';
@@ -153,7 +153,7 @@ export function SearchScreen({
                 >
                   <View style={styles.resultInfo}>
                     <Text style={styles.resultName}>{item.name || item.symbol.code}</Text>
-                    <Text style={styles.resultCode}>{item.symbol.code} · {item.symbol.exchange}</Text>
+                    <Text style={styles.resultCode}>{toFullCode(item.symbol)}</Text>
                   </View>
                   <Icon name={Icons.chevronRight} size={2} color="textSecondary" />
                 </TouchableOpacity>

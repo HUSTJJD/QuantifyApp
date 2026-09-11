@@ -1,7 +1,6 @@
 /**
  * 布林带因子：价格在带内的相对位置；触及上下轨给信号。
  */
-import type { Candle } from '@/api';
 import { bollinger, closes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

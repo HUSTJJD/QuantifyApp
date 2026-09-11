@@ -11,8 +11,8 @@
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { marketData } from '@/api';
-import type { Symbol, DragonTigerStock } from '@/api';
+import { marketData } from '@/data/api';
+import type { Symbol, DragonTigerStock } from '@/data/api';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
 import { spacing, fontSize, radius } from '@/theme';

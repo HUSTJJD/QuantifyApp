@@ -3,8 +3,9 @@
  *
  * 输入 StrategyTemplate + K 线 → 产出 FactorSignal。
  * 纯函数；因子按需缓存（同一 factorId+params 只算一次）。
+ * paramOverrides：按 factorId 覆盖因子默认参数（来自用户档案调参）。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { getFactor } from './factors';
 import { defaultFactorParams } from './types';
 import type {
@@ -15,29 +16,35 @@ import type {
   StrategyTemplate,
 } from './types';
 
-/** 因子缓存键：factorId + 稳定序列化 params */
+/** 按因子 id 覆盖参数：{ ma_cross: { fast: 8 }, rsi: { period: 10 } } */
+export type FactorParamOverrides = Record<string, Record<string, number>>;
+
 function cacheKey(factorId: string, params: Record<string, number>): string {
   const keys = Object.keys(params).sort();
   return `${factorId}|${keys.map((k) => `${k}=${params[k]}`).join(',')}`;
 }
 
-function paramsOf(factorId: string, overrides?: Record<string, number>): Record<string, number> {
+function paramsOf(
+  factorId: string,
+  overrides?: Record<string, number>,
+  all?: FactorParamOverrides,
+): Record<string, number> {
   const f = getFactor(factorId);
-  if (!f) return overrides ?? {};
-  return { ...defaultFactorParams(f), ...overrides };
+  const base = f ? defaultFactorParams(f) : {};
+  return { ...base, ...all?.[factorId], ...overrides };
 }
 
-/** 评估单个条件 */
 function evalCondition(
   cond: FactorCondition,
   candles: Candle[],
   cache: Map<string, FactorResult | null>,
+  paramOverrides?: FactorParamOverrides,
 ): boolean {
   const run = (id: string, p?: Record<string, number>): FactorResult | null => {
-    const key = cacheKey(id, paramsOf(id, p));
+    const key = cacheKey(id, paramsOf(id, p, paramOverrides));
     if (!cache.has(key)) {
       const f = getFactor(id);
-      cache.set(key, f ? f.evaluate(candles, paramsOf(id, p)) : null);
+      cache.set(key, f ? f.evaluate(candles, paramsOf(id, p, paramOverrides)) : null);
     }
     return cache.get(key) ?? null;
   };
@@ -59,8 +66,6 @@ function evalCondition(
       return r?.triggered === true && r.triggerSide === cond.side;
     }
     case 'cross': {
-      // 用左右因子的 score 差判断交叉：当前 left>right 且之前 left<=right
-      // 简化：用两因子当前 score 的相对关系 + 至少一个 triggered
       const l = run(cond.left, cond.params?.[cond.left]);
       const r = run(cond.right, cond.params?.[cond.right]);
       if (l == null || r == null) return false;
@@ -70,10 +75,17 @@ function evalCondition(
   }
 }
 
-function ruleHit(rule: StrategyRule, candles: Candle[], cache: Map<string, FactorResult | null>): boolean {
+function ruleHit(
+  rule: StrategyRule,
+  candles: Candle[],
+  cache: Map<string, FactorResult | null>,
+  paramOverrides?: FactorParamOverrides,
+): boolean {
   if (rule.conditions.length === 0) return false;
-  if (rule.mode === 'and') return rule.conditions.every((c) => evalCondition(c, candles, cache));
-  return rule.conditions.some((c) => evalCondition(c, candles, cache));
+  if (rule.mode === 'and') {
+    return rule.conditions.every((c) => evalCondition(c, candles, cache, paramOverrides));
+  }
+  return rule.conditions.some((c) => evalCondition(c, candles, cache, paramOverrides));
 }
 
 function autoReason(rule: StrategyRule): string {
@@ -96,11 +108,12 @@ function autoReason(rule: StrategyRule): string {
 export function evaluateStrategy(
   template: StrategyTemplate,
   candles: Candle[],
+  paramOverrides?: FactorParamOverrides,
 ): FactorSignal | null {
   const cache = new Map<string, FactorResult | null>();
   for (let i = 0; i < template.rules.length; i++) {
     const rule = template.rules[i];
-    if (ruleHit(rule, candles, cache)) {
+    if (ruleHit(rule, candles, cache, paramOverrides)) {
       return {
         side: rule.side,
         reason: rule.reason ?? autoReason(rule),
@@ -110,4 +123,19 @@ export function evaluateStrategy(
     }
   }
   return null;
+}
+
+/** 收集模板用到的全部因子 id（去重） */
+export function factorsUsedBy(template: StrategyTemplate): string[] {
+  const ids = new Set<string>();
+  for (const rule of template.rules) {
+    for (const c of rule.conditions) {
+      if (c.kind === 'score' || c.kind === 'triggered') ids.add(c.factorId);
+      else {
+        ids.add(c.left);
+        ids.add(c.right);
+      }
+    }
+  }
+  return [...ids];
 }

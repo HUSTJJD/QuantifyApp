@@ -13,7 +13,7 @@
  * 主源网络故障时由 SourceRouter 自动熔断降级到次主源/兜底源。
  */
 import type { Market } from './types';
-import { storage, StorageKeys } from '@/db/storage';
+import { storage, StorageKeys } from '@/data/db/storage';
 import { HithsaHttpClient } from './sources/HithsaHttpClient';
 
 export type DataSourceId = string;

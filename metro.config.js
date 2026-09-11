@@ -1,59 +1,49 @@
-const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+// https://docs.expo.dev/guides/customizing-metro/
+const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
-/**
- * Metro configuration
- * https://reactnative.dev/docs/metro
- *
- * @type {import('@react-native/metro-config').MetroConfig}
- */
 const projectRoot = __dirname;
 const srcRoot = path.resolve(projectRoot, 'src');
+// zrender 嵌套的旧版 tslib ESM 在 Metro 下 default 互操作会炸，强制走根包 CJS
+const tslibCjs = path.resolve(projectRoot, 'node_modules/tslib/tslib.js');
 
-const config = {
-  resolver: {
-    // 注：RN 0.87 / Metro 0.82+ 默认已启用 package.json exports 字段解析，
-    // 无需显式配置 unstable_enablePackageExports（显式覆盖 conditionNames 会干扰
-    // react-native-safe-area-context 等「无 exports、react-native 字段指向 src」的包）。
-    // @opptrix/fuyao（type:module + exports）走 Metro 默认解析即可。
-    // 把 @/xxx 重写为绝对路径 <root>/src/xxx，使 Metro 能解析别名
-    resolveRequest: (context, moduleName, platform, moduleCache) => {
-      if (moduleName.startsWith('@/')) {
-        const rest = moduleName.slice('@/'.length);
-        const candidate = path.resolve(srcRoot, rest);
-        return context.resolveRequest(
-          context,
-          candidate,
-          platform,
-          moduleCache,
-        );
-      }
-      // react-native-paper 内部硬编码了 @expo/vector-icons 与
-      // @react-native-vector-icons/material-design-icons 作为图标 fallback。
-      // 裸 RN 项目里前者会拉进整条 expo 依赖链（expo-font/expo-asset/...），
-      // 后者依赖 RN 已废弃的 @react-native/assets-registry，均会导致 Metro 解析失败。
-      // 这里把两者统一重定向到已安装的单体包 react-native-vector-icons
-      // （RN 0.87 兼容、无上述依赖问题），使 paper 正常渲染 Material 图标且零额外依赖。
-      if (moduleName.startsWith('@expo/vector-icons/')) {
-        const rest = moduleName.slice('@expo/vector-icons/'.length);
-        return context.resolveRequest(
-          context,
-          `react-native-vector-icons/${rest}`,
-          platform,
-          moduleCache,
-        );
-      }
-      if (moduleName === '@react-native-vector-icons/material-design-icons') {
-        return context.resolveRequest(
-          context,
-          'react-native-vector-icons/MaterialCommunityIcons',
-          platform,
-          moduleCache,
-        );
-      }
-      return context.resolveRequest(context, moduleName, platform, moduleCache);
-    },
-  },
+/** @type {import('expo/metro-config').MetroConfig} */
+const config = getDefaultConfig(projectRoot);
+
+const defaultResolveRequest = config.resolver.resolveRequest;
+
+config.resolver.resolveRequest = (context, moduleName, platform, moduleCache) => {
+  // @/xxx → <root>/src/xxx（业务代码统一约定）
+  if (moduleName.startsWith('@/')) {
+    const rest = moduleName.slice('@/'.length);
+    return context.resolveRequest(
+      context,
+      path.resolve(srcRoot, rest),
+      platform,
+      moduleCache,
+    );
+  }
+  // tslib 统一 CJS
+  if (
+    moduleName === 'tslib' ||
+    moduleName === 'tslib/tslib.js' ||
+    moduleName.endsWith('/tslib') ||
+    moduleName.endsWith('\\tslib')
+  ) {
+    return { type: 'sourceFile', filePath: tslibCjs };
+  }
+  // haptic 原生未链接时的 JS 垫片
+  if (moduleName === 'react-native-haptic-feedback') {
+    return {
+      type: 'sourceFile',
+      filePath: path.resolve(projectRoot, 'src/polyfills/RNHapticFeedbackStub.js'),
+    };
+  }
+  // 交给 Expo 默认解析器
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform, moduleCache);
+  }
+  return context.resolveRequest(context, moduleName, platform, moduleCache);
 };
 
-module.exports = mergeConfig(getDefaultConfig(projectRoot), config);
+module.exports = config;

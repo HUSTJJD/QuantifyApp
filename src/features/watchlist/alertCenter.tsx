@@ -74,10 +74,18 @@ export function AlertCenterProvider({ children }: { children: React.ReactNode })
   );
 }
 
+const DEFAULT_CTX: AlertCenterCtx = {
+  state: { unread: 0, events: [] },
+  notify: () => {},
+  markRead: () => {},
+};
+
+/**
+ * 读取通知中心。Provider 外（热更新/极少数边界）返回空实现，
+ * 避免 Snackbar onDismiss 等路径在 Provider 卸载后抛错红屏。
+ */
 export function useAlertCenter(): AlertCenterCtx {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('useAlertCenter 必须在 AlertCenterProvider 内使用');
-  return ctx;
+  return useContext(Ctx) ?? DEFAULT_CTX;
 }
 
 /**
@@ -89,6 +97,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { watchlistPoller } from './poller';
 import { isTradingNow } from '@/utils/trading';
+import { setSignalNotifier } from '@/quant/SignalEngine';
 
 export function PollerBridge(): React.JSX.Element {
   const { notify } = useAlertCenter();
@@ -105,6 +114,7 @@ export function PollerBridge(): React.JSX.Element {
       }
     };
     watchlistPoller.setNotifier(notify);
+    setSignalNotifier(notify);
     sync();
     const sub = AppState.addEventListener('change', () => sync());
     const watchdog = setInterval(sync, 30_000);
@@ -112,6 +122,7 @@ export function PollerBridge(): React.JSX.Element {
       sub.remove();
       clearInterval(watchdog);
       watchlistPoller.stop();
+      setSignalNotifier(null);
     };
   }, [notify]);
 

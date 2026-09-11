@@ -4,7 +4,7 @@
  */
 import { adjustCandles, computeForwardFactors, computeBackwardFactors } from '@/quant/adjustment';
 import { aggregateWeekly, aggregateMonthly } from '@/quant/aggregate';
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 function candle(datetime: number | string, o: number, h: number, l: number, c: number, volume = 100): Candle {
   return { datetime, open: o, high: h, low: l, close: c, volume };

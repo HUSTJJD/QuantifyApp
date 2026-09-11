@@ -76,6 +76,46 @@ export async function applyMethod(
   return (fn as (...a: unknown[]) => Promise<unknown>).apply(src, args);
 }
 
+/**
+ * 从方法入参中提取可读标的标签，用于失败日志。
+ * 覆盖常见形态：
+ *  - { code: '002443' } / { code, exchange }
+ *  - { symbol: { code: '002443', exchange: 'SZ' } }（getKline / getQuotes）
+ *  - 数组入参（批量）取前几个 code
+ */
+function formatSymbolTag(args: unknown[]): string {
+  const pickCode = (v: unknown): string | null => {
+    if (!v || typeof v !== 'object') return null;
+    const o = v as { code?: unknown; exchange?: unknown; symbol?: unknown };
+    if (typeof o.code === 'string' && o.code) {
+      return typeof o.exchange === 'string' && o.exchange ? `${o.exchange}.${o.code}` : o.code;
+    }
+    if (o.symbol && typeof o.symbol === 'object') {
+      const s = o.symbol as { code?: unknown; exchange?: unknown };
+      if (typeof s.code === 'string' && s.code) {
+        return typeof s.exchange === 'string' && s.exchange ? `${s.exchange}.${s.code}` : s.code;
+      }
+    }
+    return null;
+  };
+
+  for (const arg of args) {
+    if (Array.isArray(arg)) {
+      const codes = arg
+        .map(pickCode)
+        .filter((c): c is string => !!c)
+        .slice(0, 5);
+      if (codes.length > 0) {
+        return `symbols=${codes.join(',')}${arg.length > codes.length ? `…(+${arg.length - codes.length})` : ''}`;
+      }
+      continue;
+    }
+    const one = pickCode(arg);
+    if (one) return `symbol=${one}`;
+  }
+  return '';
+}
+
 export class SourceRouter {
   readonly factory: SourceFactory;
   readonly health: SourceHealth;
@@ -112,7 +152,7 @@ export class SourceRouter {
    * 冷启动（无统计）或 stableRouting=false 时退化为配置顺序。
    * 注意：此处只排序，不裁剪能力——canCall 检查仍由调用方循环内执行。
    */
-  private orderedFor(method: DataSourceMethod, _args: unknown[]): string[] {
+  private orderedFor(_method: DataSourceMethod, _args: unknown[]): string[] {
     const base = this.sourceOrder();
     if (!this.stableRouting) return base;
     const idx = new Map(base.map((id, i) => [id, i]));
@@ -246,6 +286,18 @@ export class SourceRouter {
     }
 
     if (attempted === 0) {
+      // 批量/列表类方法：当前参数组合无源覆盖（如纯 .TI 指数行情被各源 supports 裁剪）
+      // → 返回空，不抛错。调用方已有空态 UI，避免 LogBox 刷「no data source supports」。
+      if (
+        method === 'getIndexQuotes' ||
+        method === 'getQuotes' ||
+        method === 'getIndexKline' ||
+        method === 'getKline' ||
+        method === 'getValuations'
+      ) {
+        console.warn(`[SourceRouter] ${method} 无可用数据源，返回空: ${formatSymbolTag(a) || 'n/a'}`);
+        return [];
+      }
       throw new Error(`no data source supports "${method}"`);
     }
 
@@ -255,14 +307,39 @@ export class SourceRouter {
       return [];
     }
 
+    // 全部失败但原因都是「空/未知标的」→ 视为暂无数据，返回空并降级日志，
+    // 避免北交所/新股/停牌等覆盖缺口在 LogBox 刷屏。
+    const isKlineMethod = method === 'getKline' || method === 'getIndexKline';
+    const allSoft =
+      Object.values(errors).length > 0 &&
+      Object.values(errors).every((err) => {
+        const m = err instanceof Error ? err.message : String(err);
+        if (
+          /No adjustment events|返回为空|empty|Unknown|无有效数据|not found|不支持|unavailable/i.test(
+            m,
+          )
+        ) {
+          return true;
+        }
+        // K 线：其它源已空 + stock-sdk 通用「K线失败」→ 按暂无数据（停牌/覆盖缺口）
+        if (isKlineMethod && /K线失败|分钟K线失败/i.test(m)) {
+          return true;
+        }
+        return false;
+      });
+    if (allSoft) {
+      if (hasRealError) {
+        console.warn(`[SourceRouter] ${method} 暂无数据: ${formatSymbolTag(a) || 'n/a'}`);
+      }
+      return [];
+    }
+
     const detail = Object.entries(errors)
       .map(([id, err]) => `${id}: ${err instanceof Error ? err.message : String(err)}`)
       .join('; ');
-    // 若入参含 Symbol（含 code），把标的一并带上，便于在报错里直接定位到具体标的
-    const symArg = a.find(
-      (x): x is { code?: unknown } => !!x && typeof x === 'object' && typeof (x as { code?: unknown }).code === 'string',
-    ) as { code?: unknown } | undefined;
-    const msg = `all data sources failed for "${method}": ${detail}${symArg ? ` | symbol=${symArg.code}` : ''}`;
+    // 从入参提取标的（支持顶层 { code } 与 K 线/行情常见的 { symbol: { code, exchange } }）
+    const symTag = formatSymbolTag(a);
+    const msg = `all data sources failed for "${method}": ${detail}${symTag ? ` | ${symTag}` : ''}`;
     // 兜底链整体失败时才打一条汇总（含各源原因），便于一次性定位
     if (hasRealError) {
       console.error(`[SourceRouter] ${msg}`);
@@ -379,10 +456,33 @@ export class SourceRouter {
       // 没有真实异常且什么都没取到 → 各源“如实返回空”，视为无数据而非故障
       if (Object.keys(errors).length === 0) return [];
 
+      // 全部失败但都是「未知标的/空/不支持」→ 返回空，避免 jj007000 等脏码刷 LogBox
+      const allSoft =
+        Object.values(errors).length > 0 &&
+        Object.values(errors).every((err) => {
+          const m = err instanceof Error ? err.message : String(err);
+          return /No adjustment events|返回为空|empty|Unknown|无有效数据|not found|不支持|unavailable|did not return array/i.test(
+            m,
+          );
+        });
+      if (allSoft) {
+        console.warn(
+          `[SourceRouter] ${method} 批量暂无数据: ${items.map(itemKey).slice(0, 5).join(',')}`,
+        );
+        return [];
+      }
+
       const detail = Object.entries(errors)
         .map(([id, err]) => `${id}: ${err instanceof Error ? err.message : String(err)}`)
         .join('; ');
-      throw new Error(`all data sources failed for "${method}": ${detail || 'no result'}`);
+      const keys = items
+        .map(itemKey)
+        .slice(0, 5)
+        .join(',');
+      const more = items.length > 5 ? `…(+${items.length - 5})` : '';
+      throw new Error(
+        `all data sources failed for "${method}": ${detail || 'no result'} | n=${items.length}${keys ? ` items=${keys}${more}` : ''}`,
+      );
     }
 
     return ordered;

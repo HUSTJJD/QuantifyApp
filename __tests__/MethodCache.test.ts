@@ -2,16 +2,16 @@
  * MethodCache 读穿缓存单测（MemoryStorage，不联网）。
  * 覆盖：领域表路由 / fallback 表 / 未登记不缓存 / 空结果策略。
  */
-import { MemoryStorageAdapter, setStorage, StorageKeys } from '@/db/storage';
-import { resetQuantStore } from '@/db/QuantStore';
-import { resetDomainCache } from '@/db/DomainCache';
+import { MemoryStorageAdapter, setStorage, StorageKeys } from '@/data/db/storage';
+import { resetQuantStore } from '@/data/db/QuantStore';
+import { resetDomainCache } from '@/data/db/DomainCache';
 import {
   methodCacheKey,
   readThroughCache,
   clearMethodCache,
   METHOD_CACHE_POLICIES,
-} from '@/api/MethodCache';
-import type { DataSourceMethod, Quote, Symbol } from '@/api';
+} from '@/data/api/MethodCache';
+import type { DataSourceMethod, Quote, Symbol } from '@/data/api';
 
 beforeEach(() => {
   setStorage(new MemoryStorageAdapter());

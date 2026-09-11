@@ -16,10 +16,10 @@
  *
  * 通过 jest.mock('stock-sdk') 注入一个实现全部真实命名空间与方法的假 SDK，精确断言调用参数与返回映射。
  */
-import { StockSdkSource } from '@/api/sources/StockSdkSource';
-import { DataSourceError } from '@/api/MarketDataSource';
-import { isValidCandle } from '@/api/candleValidity';
-import type { Symbol } from '@/api';
+import { StockSdkSource } from '@/data/api/sources/StockSdkSource';
+import { DataSourceError } from '@/data/api/MarketDataSource';
+import { isValidCandle } from '@/data/api/candleValidity';
+import type { Symbol } from '@/data/api';
 
 // ---------------- mock stock-sdk（真实 API 结构） ----------------
 const mockSdk = {
@@ -402,7 +402,7 @@ describe('getKline（历史K线）', () => {
     mockSdk.kline.us.mockResolvedValue([K('2024-01-01')]);
     const s = new StockSdkSource();
     await s.getKline({ symbol: HK('00700'), period: 'day' });
-    expect(mockSdk.kline.hk).toHaveBeenCalledWith('00700', { period: 'daily', adjust: '' });
+    expect(mockSdk.kline.hk).toHaveBeenCalledWith('00700', { period: 'daily', adjust: 'qfq' });
     await s.getKline({ symbol: US('AAPL'), period: 'day' });
     expect(mockSdk.kline.us).toHaveBeenCalledWith('AAPL', { period: 'daily', adjust: '' });
   });
@@ -753,7 +753,7 @@ describe('SDK 专属扩展能力', () => {
     mockSdk.kline.us.mockResolvedValue([{ date: '2024-01-01', open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 }]);
     const s = new StockSdkSource();
     await s.getKlineHK({ symbol: HK('00700'), period: 'day' });
-    expect(mockSdk.kline.hk).toHaveBeenCalledWith('00700', { period: 'daily', adjust: '' });
+    expect(mockSdk.kline.hk).toHaveBeenCalledWith('00700', { period: 'daily', adjust: 'qfq' });
     await s.getKlineUS({ symbol: US('AAPL'), period: 'week' });
     expect(mockSdk.kline.us).toHaveBeenCalledWith('AAPL', { period: 'weekly', adjust: '' });
   });

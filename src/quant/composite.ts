@@ -9,7 +9,7 @@
  *
  * 纯函数，可单测；与现有单指标 Strategy 并存，可被 profile/回测复用。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { sma, ema, macd, rsi, bollinger, closes, volumes, highs, lows } from './indicators';
 import type { PartialSignal, SignalSide } from './strategies';
 
@@ -111,10 +111,6 @@ export type Condition =
   | { kind: 'cross_below'; left: IndicatorKey; right: IndicatorKey }
   /** 量比：volume / vol_ma5 */
   | { kind: 'vol_ratio'; op: CompareOp; value: number };
-
-function resolve(snap: IndicatorSnapshot, ind: IndicatorKey, which: 'cur' | 'prev'): number | null {
-  return which === 'cur' ? snap.get(ind) : snap.prev(ind);
-}
 
 export function evalCondition(c: Condition, snap: IndicatorSnapshot): boolean {
   switch (c.kind) {

@@ -2,7 +2,7 @@
  * 标的标识领域工具：代码↔统一 Symbol 互转、市场归类。
  * 集中处理交易所后缀，避免散落在各数据源里。
  */
-import type { Exchange, Market, Symbol } from '@/api';
+import type { Exchange, Market, Symbol } from '@/data/api';
 
 const EXCHANGE_SUFFIX: Record<Exchange, string> = {
   SH: '.SH',
@@ -28,16 +28,143 @@ const SUFFIX_TO_EXCHANGE: Record<string, Exchange> = {
   SZ: 'SZ',
   BJ: 'BJ',
   HK: 'HK',
+  TI: 'TI',
+  OF: 'OF',
+  US: 'US',
 };
 
 /** 把 600519.SH / 00700.HK 这样的完整代码解析成 Symbol */
 export function parseSymbol(fullCode: string): Symbol {
-  const m = fullCode.match(/^(\d+)\.([A-Z]{2})$/);
+  const cleaned = normalizeSymbolCode(fullCode);
+  const m = cleaned.match(/^(\d+)\.([A-Z]{2})$/);
   if (m) {
     return { code: m[1], exchange: SUFFIX_TO_EXCHANGE[m[2]] ?? 'SH' };
   }
   // 没有后缀则按规则推断
-  return inferSymbol(fullCode);
+  return inferSymbol(cleaned);
+}
+
+/**
+ * 归一化脏代码：去掉 sh/sz/bj/hk/us 等市场前缀、大小写不敏感后缀。
+ * 例：sh603986 → 603986；SH603986 → 603986；hk03986 → 03986；
+ *     603986.sh → 603986.SH；sh603986.SH → 603986
+ */
+export function normalizeSymbolCode(raw: string): string {
+  let s = String(raw ?? '').trim();
+  if (!s) return s;
+  // 1) 去掉 sh./sz./bj./hk./us./jj. 这种「前缀+点」（jj=基金）
+  s = s.replace(/^(sh|sz|bj|hk|us|jj)\./i, '');
+  // 2) 去掉紧贴数字/字母的市场前缀（sh603986 / HK03986 / jj007000）
+  s = s.replace(/^(sh|sz|bj|hk|us|jj)(?=\d)/i, '');
+  // 3) 后缀规范为大写
+  const m = s.match(/^([^.]+)\.([a-z]{2})$/i);
+  if (m) {
+    return `${m[1]}.${m[2]!.toUpperCase()}`;
+  }
+  return s;
+}
+
+/**
+ * 清洗 Symbol：code 里混入 sh/hk 等前缀或重复后缀时，
+ * 前缀优先决定交易所（hk03986 + exchange=SH 会纠为 03986.HK）。
+ */
+export function sanitizeSymbol(input: Symbol): Symbol {
+  const raw = String(input.code ?? '').trim();
+  if (!raw) return input;
+
+  let code = raw;
+  let exchange = input.exchange;
+  let forced: Exchange | null = null;
+
+  // jj 前缀 = 场外/场内基金标记，清洗后按 OF 处理
+  let isFund = false;
+  if (/^jj(?=\d)/i.test(code)) {
+    isFund = true;
+    code = code.replace(/^jj/i, '');
+  }
+
+  const pref = code.match(/^(sh|sz|bj|hk|us)(?=\d)/i);
+  if (pref) {
+    const p = pref[1]!.toLowerCase();
+    code = code.slice(pref[0].length);
+    forced =
+      p === 'sh'
+        ? 'SH'
+        : p === 'sz'
+          ? 'SZ'
+          : p === 'bj'
+            ? 'BJ'
+            : p === 'hk'
+              ? 'HK'
+              : 'US';
+  }
+
+  const suf = code.match(/^([^.]+)\.([A-Za-z]{2})$/);
+  if (suf) {
+    code = suf[1]!;
+    if (!forced) {
+      forced = SUFFIX_TO_EXCHANGE[suf[2]!.toUpperCase()] ?? null;
+    }
+  }
+
+  if (isFund && !forced) forced = 'OF';
+  // 保留 name 等业务字段（仅纠正 code/exchange）
+  return { ...input, code, exchange: forced ?? exchange };
+}
+
+/** 场内基金（OF）——无个股 K 线/复权语义，走净值/基金行情 */
+export function isFundSymbol(symbol: Symbol): boolean {
+  return symbol.exchange === 'OF';
+}
+
+/**
+ * 期权合约代码：如 AO2610P3150 / 10007510（含字母行权价后缀）。
+ * 与 6 位纯数字股票代码区分。
+ */
+export function isOptionCode(code: string): boolean {
+  const c = String(code ?? '').trim();
+  if (!c) return false;
+  // 沪深期权：AO/CU 等品种 + 到期 + C/P + 行权价；或纯数字 8 位期权
+  if (/^[A-Z]{1,3}\d{4}[CP]\d+$/i.test(c)) return true;
+  if (/^[A-Z]{2,}\d+[CP]\d+$/i.test(c)) return true;
+  return false;
+}
+
+/**
+ * 债券 / 可转债代码（沪 10/11/12 开头，深 12 开头等）。
+ * 例：10011450.SH、113050.SH、127xxx.SZ —— 无个股 K 线/复权契约。
+ */
+export function isBondCode(code: string): boolean {
+  const c = String(code ?? '').trim();
+  if (!/^\d+$/.test(c)) return false;
+  // 沪市国债/企债/转债：10/11/12 开头（6~10 位），如 113050、10011450
+  if (/^1[012]\d{4,8}$/.test(c)) return true;
+  // 深市转债：123/127/128 等 6 位
+  if (/^12[3-9]\d{3}$/.test(c)) return true;
+  return false;
+}
+
+/**
+ * 场内基金 / ETF / LOF 代码（非 OF 交易所、而是挂 SH/SZ）。
+ *  - 沪：5xxxxx（51x ETF、50x LOF、56x/58x ETF）
+ *  - 深：15xxxx / 16xxxx / 18xxxx
+ */
+export function isListedFundCode(code: string): boolean {
+  const c = String(code ?? '').trim();
+  if (!/^\d+$/.test(c)) return false;
+  if (/^5\d{5}$/.test(c)) return true;
+  if (/^(15|16|18)\d{4}$/.test(c)) return true;
+  return false;
+}
+
+/** 个股/指数外的「无 K 线契约」标的：场内基金、ETF/LOF、期权、债券 */
+export function isNonKlineSymbol(symbol: Symbol): boolean {
+  return (
+    isFundSymbol(symbol) ||
+    isOptionCode(symbol.code) ||
+    isBondCode(symbol.code) ||
+    isListedFundCode(symbol.code)
+  );
 }
 
 /** 根据代码特征推断交易所 */
@@ -63,6 +190,7 @@ export function displaySymbol(symbol: Symbol, name?: string): string {
 /** 交易所 -> 市场大类 */
 export function marketOf(exchange: Exchange): Market {
   if (exchange === 'HK') return 'HK';
+  if (exchange === 'US') return 'US';
   return 'A';
 }
 
@@ -126,9 +254,5 @@ export function isIndexSymbol(symbol: Symbol): boolean {
 
 /** 同花顺 thscode -> 本项目 Symbol */
 export function fromThsCode(thsCode: string): Symbol {
-  const m = thsCode.match(/^([^.]+)\.([A-Z]{2})$/);
-  if (m) {
-    return { code: m[1], exchange: m[2] as Exchange };
-  }
-  return { code: thsCode, exchange: 'SH' };
+  return parseSymbol(thsCode);
 }

@@ -16,7 +16,7 @@
  *  - 港股/美股代码原样透传（App 内是否识别取决于同花顺版本）。
  */
 import { Linking, Platform } from 'react-native';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import { isIndexSymbol } from '@/domain/symbol';
 
 export const THS_SCHEME = '10jqka';

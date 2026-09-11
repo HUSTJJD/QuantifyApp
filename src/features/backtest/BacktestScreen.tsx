@@ -8,13 +8,14 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKline } from '@/hooks/useMarketData';
 import { displaySymbol } from '@/domain';
-import type { Symbol, KlinePeriod } from '@/api';
-import { Sparkline, Card, Section, StatTile } from '@/components';
+import type { Symbol, KlinePeriod } from '@/data/api';
+import { LineGraphView, Card, Section, StatTile } from '@/components';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { colors, spacing, fontSize, radius, fontWeight } from '@/theme';
+import { spacing, fontSize, fontWeight } from '@/theme';
 import { runBacktest } from '@/quant/backtest';
+import { walkForward } from '@/quant/walkForward';
 import { activeStrategies } from '@/quant/strategies';
 
 const TARGET: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
@@ -31,6 +32,14 @@ export function BacktestScreen({ onBack }: { onBack?: () => void }): React.JSX.E
       enabled: { trend_confirm: true },
     })[0];
     return runBacktest(strat, kline, { initCash: 100_000 });
+  }, [kline]);
+
+  const wf = useMemo(() => {
+    if (!kline || kline.length < 50) return null;
+    const strat = activeStrategies({
+      enabled: { trend_confirm: true },
+    })[0];
+    return walkForward(strat, kline, { initCash: 100_000, trainRatio: 0.7 });
   }, [kline]);
 
   const styles = makeStyles(c);
@@ -58,24 +67,56 @@ export function BacktestScreen({ onBack }: { onBack?: () => void }): React.JSX.E
               <Icon name={Icons.chart} size={2} color="primary" style={styles.chartHeadIcon} />
               <Text style={styles.chartHeadText}>权益曲线（MA金叉 · 全仓）</Text>
             </View>
-            <Sparkline data={result.equity} height={160} color={result.totalReturnPct >= 0 ? c.up : c.down} />
+            <LineGraphView
+              values={result.equity}
+              height={160}
+              trendingUp={result.totalReturnPct >= 0}
+              enablePanGesture
+            />
           </Card>
 
           <Section title="绩效" />
           <Card>
             <View style={styles.statRow}>
               <StatTile value={`${result.totalReturnPct.toFixed(2)}%`} label="总收益率" color={result.totalReturnPct >= 0 ? c.up : c.down} />
-              <StatTile value={`${result.maxDrawdownPct.toFixed(2)}%`} label="最大回撤" color={c.warning} />
+              <StatTile value={`${result.annualizedReturnPct.toFixed(2)}%`} label="年化收益" color={result.annualizedReturnPct >= 0 ? c.up : c.down} />
             </View>
             <View style={styles.statRow}>
+              <StatTile value={`${result.maxDrawdownPct.toFixed(2)}%`} label="最大回撤" color={c.warning} />
               <StatTile value={result.sharpe.toFixed(2)} label="夏普比率" />
+            </View>
+            <View style={styles.statRow}>
               <StatTile value={`${result.winRate.toFixed(1)}%`} label="胜率" />
+              <StatTile value={result.profitFactor === Infinity ? '∞' : result.profitFactor.toFixed(2)} label="盈亏比" />
             </View>
             <View style={styles.statRow}>
               <StatTile value={result.trades.length} label="交易次数" />
-              <StatTile value={(result.finalEquity / 10000).toFixed(1)} label="期末资金(万)" />
+              <StatTile value={`¥${result.totalFees.toFixed(0)}`} label="总费用" />
             </View>
           </Card>
+
+          {wf && (
+            <>
+              <Section title="样本外验证（70/30）" />
+              <Card>
+                <View style={styles.statRow}>
+                  <StatTile value={`${wf.train.totalReturnPct.toFixed(2)}%`} label="训练集收益" color={wf.train.totalReturnPct >= 0 ? c.up : c.down} />
+                  <StatTile value={`${wf.val.totalReturnPct.toFixed(2)}%`} label="验证集收益" color={wf.val.totalReturnPct >= 0 ? c.up : c.down} />
+                </View>
+                <View style={styles.statRow}>
+                  <StatTile value={wf.train.sharpe.toFixed(2)} label="训练集夏普" />
+                  <StatTile value={wf.val.sharpe.toFixed(2)} label="验证集夏普" />
+                </View>
+                <View style={styles.statRow}>
+                  <StatTile value={`${wf.returnDecayPct.toFixed(1)}%`} label="收益衰减" color={wf.returnDecayPct > 50 ? c.down : undefined} />
+                  <StatTile value={`${wf.sharpeDecayPct.toFixed(1)}%`} label="夏普衰减" color={wf.sharpeDecayPct > 50 ? c.down : undefined} />
+                </View>
+                {wf.likelyOverfit && (
+                  <Text style={styles.overfitWarn}>疑似过拟合：验证集表现显著差于训练集，策略参数可能过度拟合历史数据</Text>
+                )}
+              </Card>
+            </>
+          )}
         </>
       )}
 
@@ -99,5 +140,6 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     chartHeadIcon: { marginRight: spacing.xs },
     chartHeadText: { color: colors.text, fontSize: fontSize.md, fontWeight: fontWeight.bold as any },
     statRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: spacing.sm },
+    overfitWarn: { color: colors.down, fontSize: fontSize.xs, textAlign: 'center', marginTop: spacing.xs, lineHeight: 16 },
   });
 }

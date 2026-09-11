@@ -10,16 +10,19 @@
  * 不引入原生通知依赖；通知能力通过 `notify` 回调注入，便于在 UI 层用
  * react-native 的 Alert / 第三方通知库实现，也便于测试时传桩。
  */
-import { marketData } from '@/api';
-import type { Symbol, Quote } from '@/api';
+import { marketData } from '@/data/api';
+import type { Symbol, Quote, Candle } from '@/data/api';
 import {
   detectAlerts,
   DEFAULT_ALERT_RULES,
+  ruleNeedsCandles,
   type AlertRule,
   type AlertEvent,
 } from './alerts';
-import { getWatchlist } from '@/repositories/WatchlistRepository';
+import { getAllAlertRules } from './userAlertRules';
+import { getWatchlist } from '@/data/repositories/WatchlistRepository';
 import { recordAlerts, dedupeKey, getAlertHistory } from './alertHistory';
+import { getCandlesLocal } from '@/data/db/KlineReader';
 import { logger } from '@/utils/logger';
 
 export interface PollerDeps {
@@ -33,25 +36,44 @@ export interface PollerDeps {
   notify?: (events: AlertEvent[]) => void;
   /** 轮询间隔(ms)，默认 15000 */
   intervalMs?: number;
+  /** 加载标的日K（指标/突破规则用）；默认本地库，测试可注入 */
+  fetchCandles?: (symbols: Symbol[]) => Promise<Map<string, Candle[]>>;
+}
+
+/** 默认：优先本地日K；单标的失败跳过 */
+async function defaultFetchCandles(symbols: Symbol[]): Promise<Map<string, Candle[]>> {
+  const map = new Map<string, Candle[]>();
+  for (const s of symbols) {
+    try {
+      const cs = await getCandlesLocal(s, 'day', 'none');
+      if (cs && cs.length > 0) map.set(`${s.code}.${s.exchange}`, cs);
+    } catch {
+      // 跳过
+    }
+  }
+  return map;
 }
 
 /**
  * 纯函数：对当前行情快照跑异动规则，返回「相对已记录历史」真正新增的事件。
  * - `knownEvents` 为已落盘/已知事件（用 symbolKey+ruleId+时间窗去重由 alertHistory 负责），
  *   这里只负责「这次快照触发了哪些规则」，并剔除与 `alreadyKnown` 完全重复的项。
+ * - `candleMap`：key=`code.exchange` 的日K，供 breakout/maCross/rsiZone 使用。
  */
 export function evaluateWatchlist(
   quotes: Quote[],
   symbols: Symbol[],
   rules: AlertRule[],
   knownKeys: Set<string>,
+  candleMap?: Map<string, Candle[]>,
 ): AlertEvent[] {
   const byKey = new Map(symbols.map((s) => [`${s.code}.${s.exchange}`, s]));
   const inputs = quotes
     .filter((q) => byKey.has(`${q.symbol.code}.${q.symbol.exchange}`))
     .map((q) => {
       const s = byKey.get(`${q.symbol.code}.${q.symbol.exchange}`)!;
-      return { symbol: s, quote: q };
+      const key = `${s.code}.${s.exchange}`;
+      return { symbol: s, quote: q, candles: candleMap?.get(key) };
     });
   const triggered = detectAlerts(inputs, rules);
   return triggered.filter((e) => !knownKeys.has(dedupeKey(e)));
@@ -59,7 +81,14 @@ export function evaluateWatchlist(
 
 export class WatchlistPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
-  private deps: Required<PollerDeps>;
+  private deps: {
+    fetchQuotes: NonNullable<PollerDeps['fetchQuotes']>;
+    getSymbols: NonNullable<PollerDeps['getSymbols']>;
+    rules: AlertRule[];
+    notify: NonNullable<PollerDeps['notify']>;
+    intervalMs: number;
+    fetchCandles: NonNullable<PollerDeps['fetchCandles']>;
+  };
 
   constructor(deps: PollerDeps = {}) {
     this.deps = {
@@ -68,6 +97,7 @@ export class WatchlistPoller {
       rules: deps.rules ?? DEFAULT_ALERT_RULES,
       notify: deps.notify ?? (() => {}),
       intervalMs: deps.intervalMs ?? 15000,
+      fetchCandles: deps.fetchCandles ?? defaultFetchCandles,
     };
   }
 
@@ -77,7 +107,19 @@ export class WatchlistPoller {
     if (symbols.length === 0) return 0;
     const quotes = await this.deps.fetchQuotes(symbols);
     const known = new Set((await getAlertHistory()).map(dedupeKey));
-    const events = evaluateWatchlist(quotes, symbols, this.deps.rules, known);
+    // 每次 tick 重新读取用户自定义规则（支持运行时增删）
+    const rules = this.deps.rules === DEFAULT_ALERT_RULES
+      ? await getAllAlertRules()
+      : this.deps.rules;
+
+    // 指标/突破规则需要 K 线：按需加载（仅当存在启用的此类规则）
+    let candleMap: Map<string, Candle[]> | null = null;
+    const needCandles = rules.some((r) => r.enabled !== false && ruleNeedsCandles(r));
+    if (needCandles) {
+      candleMap = await this.deps.fetchCandles(symbols);
+    }
+
+    const events = evaluateWatchlist(quotes, symbols, rules, known, candleMap ?? undefined);
     if (events.length > 0) {
       await recordAlerts(events);
       this.deps.notify(events);

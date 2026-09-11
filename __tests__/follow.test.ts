@@ -5,11 +5,11 @@
  *  - 资金/持仓不足返回失败
  *  - 跟单写入模拟盘持仓/现金
  */
-import { followSignal, estimateFollowQty, markFollowed, loadFollowed, FOLLOWED_KEY } from '@/simulation/follow';
+import { followSignal, estimateFollowQty, markFollowed, loadFollowed } from '@/simulation/follow';
 import { SimAccountRepo } from '@/simulation';
-import { resetQuantStore } from '@/db/QuantStore';
-import { MemoryStorageAdapter, setStorage } from '@/db/storage';
-import type { Symbol } from '@/api';
+import { resetQuantStore } from '@/data/db/QuantStore';
+import { MemoryStorageAdapter, setStorage } from '@/data/db/storage';
+import type { Symbol } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
 

@@ -1,7 +1,6 @@
 /**
  * 突破因子：收盘创 N 日新高/新低。
  */
-import type { Candle } from '@/api';
 import { closes, highs, lows } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

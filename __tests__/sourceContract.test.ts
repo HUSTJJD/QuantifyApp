@@ -11,15 +11,15 @@
  * 不联网：只调用「按期望应当直接 3004」的方法，其余仅做静态比对。
  * 请求/响应契约（端点、参数、字段映射）由 P1 的 fixture 测试补充。
  */
-import { HithsaApiSource } from '@/api/sources/HithsaApiSource';
-import { HithsaHttpClient } from '@/api/sources/HithsaHttpClient';
-import { FuyaoApiSource } from '@/api/sources/FuyaoApiSource';
-import { StockSdkSource } from '@/api/sources/StockSdkSource';
-import { FundApiSource } from '@/api/sources/FundApiSource';
-import { auditSource } from '@/api/contract/audit';
-import { probeUnsupportedSemantics } from '@/api/contract/runner';
-import { ALL_METHODS } from '@/api/contract/catalog';
-import type { MarketDataSource } from '@/api';
+import { HithsaApiSource } from '@/data/api/sources/HithsaApiSource';
+import { HithsaHttpClient } from '@/data/api/sources/HithsaHttpClient';
+import { FuyaoApiSource } from '@/data/api/sources/FuyaoApiSource';
+import { StockSdkSource } from '@/data/api/sources/StockSdkSource';
+import { FundApiSource } from '@/data/api/sources/FundApiSource';
+import { auditSource } from '@/data/api/contract/audit';
+import { probeUnsupportedSemantics } from '@/data/api/contract/runner';
+import { ALL_METHODS } from '@/data/api/contract/catalog';
+import type { MarketDataSource } from '@/data/api';
 
 /**
  * 已登记的「接口外闲置能力」白名单。

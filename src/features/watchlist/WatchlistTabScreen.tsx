@@ -12,13 +12,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useSignals } from '@/hooks/useSignals';
-import { loadWatchlistWithBackfill } from '@/repositories/WatchlistRepository';
-import type { WatchlistGroup } from '@/repositories/WatchlistRepository';
+import { loadWatchlistWithBackfill, isDynamicGroup } from '@/data/repositories/WatchlistRepository';
+import { userStore } from '@/data/db/UserStore';
+import type { WatchlistGroup } from '@/data/repositories/WatchlistRepository';
 import { toFullCode, displaySymbol } from '@/domain';
-import type { Symbol, Quote } from '@/api';
+import type { Symbol, Quote } from '@/data/api';
 import { spacing, fontSize, radius, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { GroupTabs } from './GroupTabs';
+import { CreateGroupSheet } from './CreateGroupSheet';
 import { SortToggle, type SortMode } from './SortToggle';
 import type { TradeSignal } from '@/quant/signals';
 import { Card, PriceText, ChangePct, Tag } from '@/components';
@@ -67,6 +69,7 @@ export function WatchlistTabScreen({
   const [activeId, setActiveId] = useState<string>(ALL_ID);
   const [refreshing, setRefreshing] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('default');
+  const [showCreate, setShowCreate] = useState(false);
 
   /** 从数据库重读「自选列表 + 分组」并补齐旧数据缺失的指数/板块名字 */
   const loadMeta = useCallback(async () => {
@@ -89,9 +92,14 @@ export function WatchlistTabScreen({
     }, [loadMeta]),
   );
 
-  // 用户自建分组（含标的）才作为独立分段展示；旧的空「默认」分组不重复展示
+  // 用户分组：动态组始终展示（即使暂无命中，便于点进去看引导）；空手动组不占 Tab
   const extraGroups = useMemo(
-    () => groups.filter((g) => g.id !== 'default' && g.symbols.length > 0),
+    () =>
+      groups.filter((g) => {
+        if (g.id === 'default') return false;
+        if ((g.kind ?? 'static') !== 'static') return true;
+        return g.symbols.length > 0;
+      }),
     [groups],
   );
   const segments: WatchlistGroup[] = useMemo(() => {
@@ -100,15 +108,18 @@ export function WatchlistTabScreen({
   }, [flat, extraGroups]);
 
   const activeSeg = segments.find((s) => s.id === activeId) ?? segments[0];
-  const watchSymbols = activeSeg?.symbols ?? [];
+  // 稳定引用：否则 `?? []` 每次渲染都是新数组，下游 useMemo 依赖会每帧失效
+  const watchSymbols = useMemo(() => activeSeg?.symbols ?? [], [activeSeg]);
   const watchQuotes = useQuotes(watchSymbols, 'stock', focused);
   const { buys, sells } = useSignals();
 
+  // 仅当「选中的分组已不存在」时回落；空动态组保留选中态（可展示引导文案）
   useEffect(() => {
-    if (!activeSeg || activeSeg.symbols.length > 0) return;
-    // 选中分组已无标的时回落「自选」（正常不会发生：空分组不展示）
-    if (activeSeg.id !== ALL_ID) setActiveId(ALL_ID);
-  }, [activeSeg]);
+    if (!activeSeg) return;
+    if (activeId !== ALL_ID && !segments.some((s) => s.id === activeId)) {
+      setActiveId(ALL_ID);
+    }
+  }, [segments, activeId, activeSeg]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -134,6 +145,38 @@ export function WatchlistTabScreen({
     return map;
   }, [watchSymbols]);
 
+  // 行情若带出上游名称（港股等），回写本地库，下次启动直接有名字
+  useEffect(() => {
+    const data = watchQuotes.data;
+    if (!data?.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = (await userStore.getWatchlist()) ?? [];
+        const byKey = new Map(saved.map((s) => [toFullCode(s), s]));
+        let dirty = false;
+        for (const q of data) {
+          if (!q.symbol.name) continue;
+          const k = toFullCode(q.symbol);
+          const cur = byKey.get(k);
+          if (cur && !cur.name) {
+            byKey.set(k, { ...cur, name: q.symbol.name });
+            dirty = true;
+          }
+        }
+        if (dirty && !cancelled) {
+          await userStore.setWatchlist([...byKey.values()]);
+          loadMeta().catch(() => undefined);
+        }
+      } catch {
+        // 回写失败不影响展示
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [watchQuotes.data, loadMeta]);
+
   const quotes = sortQuotes(
     (watchQuotes.data ?? []).map((q) => {
       const stored = q.symbol.name ? undefined : nameByKey.get(toFullCode(q.symbol));
@@ -142,6 +185,16 @@ export function WatchlistTabScreen({
     sortMode,
   );
   const isEmpty = ready && watchSymbols.length === 0 && !watchQuotes.loading;
+  const emptyDynamic =
+    activeSeg && isDynamicGroup(activeSeg) && activeSeg.symbols.length === 0;
+  const emptyHint =
+    activeSeg?.kind === 'scan'
+      ? '暂无扫描命中：到「我的 → 全市场扫描」跑一轮，结果会自动挂到这里'
+      : activeSeg?.kind === 'strategy'
+        ? '暂无该策略的买卖信号：策略启用并产生信号后会自动出现'
+        : activeSeg?.kind === 'condition'
+          ? '暂无符合条件的标的：放宽价格/涨跌幅，或先添加自选'
+          : null;
   const styles = makeStyles(colors);
 
   return (
@@ -167,14 +220,22 @@ export function WatchlistTabScreen({
         </TouchableOpacity>
       </View>
 
-      {/* 分组 Tab：仅当确有自定义分组时展示 */}
-      {segments.length > 1 && (
-        <GroupTabs
-          groups={segments}
-          activeId={activeSeg?.id ?? ALL_ID}
-          onSelect={setActiveId}
-        />
-      )}
+      {/* 分组 Tab：始终展示，支持新建（含动态分组） */}
+      <GroupTabs
+        groups={segments}
+        activeId={activeSeg?.id ?? ALL_ID}
+        onSelect={setActiveId}
+        onCreate={() => setShowCreate(true)}
+      />
+
+      <CreateGroupSheet
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(gid) => {
+          if (gid) setActiveId(gid);
+          loadMeta().catch(() => undefined);
+        }}
+      />
 
       {watchQuotes.error && <Text style={styles.errText}>行情加载失败：{watchQuotes.error}</Text>}
 
@@ -199,7 +260,12 @@ export function WatchlistTabScreen({
         ListEmptyComponent={
           watchQuotes.loading ? (
             <Text style={styles.hint}>加载中…</Text>
-          ) : isEmpty ? (
+          ) : emptyDynamic ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>{activeSeg?.name}（{activeSeg?.symbols.length}）</Text>
+              <Text style={styles.emptyHint}>{emptyHint ?? '暂无标的，下拉可刷新'}</Text>
+            </Card>
+          ) : isEmpty && activeId === ALL_ID ? (
             <Card style={styles.emptyCard}>
               <Icon name={Icons.starOutline} size="xl" color="textSecondary" />
               <Text style={styles.emptyTitle}>还没有自选股票</Text>
@@ -234,7 +300,6 @@ function WatchRow({
 }): React.JSX.Element {
   const chg = item.last - item.prevClose;
   const pct = item.prevClose ? (chg / item.prevClose) * 100 : 0;
-  const up = chg >= 0;
   const styles = makeStyles(colors);
   return (
     <TouchableOpacity style={styles.row} onPress={onPress}>

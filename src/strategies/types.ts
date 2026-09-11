@@ -9,7 +9,7 @@
  * 因子是纯函数：candles + params → score/triggered。
  * 策略只描述「怎么组合因子」，不内嵌指标计算。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 /* ------------------------------ 因子 ------------------------------ */
 

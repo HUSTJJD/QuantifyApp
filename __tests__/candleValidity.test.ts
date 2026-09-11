@@ -2,8 +2,8 @@
  * K 线数据有效性校验单测：覆盖各种「脏数据」场景，确保坏数据在数据源边界被识别/剔除，
  * 不会进入图表或指标计算（这正是此前 K 线展示坏掉的根因）。
  */
-import { checkCandle, isValidCandle, cleanCandles, toCandle } from '@/api/candleValidity';
-import type { Candle } from '@/api/types';
+import { checkCandle, isValidCandle, cleanCandles, toCandle } from '@/data/api/candleValidity';
+import type { Candle } from '@/data/api/types';
 
 function good(over: Partial<Candle> = {}): Candle {
   return {

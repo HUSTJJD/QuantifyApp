@@ -14,7 +14,7 @@ import {
   resolveThsPage,
   thsJumpCode,
 } from '@/utils/thsDeepLink';
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 
 const CN = (code: string, exchange: Symbol['exchange'] = 'SH'): Symbol => ({ code, exchange });
 

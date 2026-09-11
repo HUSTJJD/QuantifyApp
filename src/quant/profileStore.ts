@@ -4,8 +4,8 @@
  *  - 首次启动（无存档）时按内置模板播种；
  *  - 每次变更同步写一份「全局信号聚合配置」（KV，SignalEngine 读取）。
  */
-import { quantStore } from '@/db/QuantStore';
-import { storage, StorageKeys } from '@/db/storage';
+import { quantStore } from '@/data/db/QuantStore';
+import { storage, StorageKeys } from '@/data/db/storage';
 import { STRATEGIES } from './strategies';
 import { createProfileFromTemplate, type StrategyProfile } from './profile';
 

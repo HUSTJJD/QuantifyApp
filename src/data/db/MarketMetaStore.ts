@@ -10,8 +10,8 @@
  *  - 统计场景新增 count* 方法（SQL COUNT），避免设置页为显示几个数字拉全表。
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import type { Instrument } from '@/api';
-import type { KlinePeriod } from '@/api/types';
+import type { Instrument } from '@/data/api';
+import type { KlinePeriod } from '@/data/api/types';
 import { getSqlite } from './connection';
 
 /** 标的库条目（symbol 归一化为 exchange.code） */

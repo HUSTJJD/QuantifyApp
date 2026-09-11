@@ -17,9 +17,9 @@ import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
-import type { Symbol } from '@/api';
-import { addToWatchlist } from '@/repositories/WatchlistRepository';
-import { hitKey, addHitsToWatchlist } from './scanActions';
+import type { Symbol } from '@/data/api';
+import { addToWatchlist } from '@/data/repositories/WatchlistRepository';
+import { hitKey, addHitsToWatchlist, saveScanSnapshot } from './scanActions';
 
 const CRITERIA = [
   { key: 'macdGoldenCross' as const, label: 'MACD 金叉' },
@@ -75,6 +75,8 @@ export function ScannerScreen({
       const res = await scanMarket(criteria, (p) => setProgress({ ...p }), 100);
       setHits(res.hits);
       setDuration(res.durationMs);
+      // 持久化扫描快照（候选池），供工作流页回看
+      saveScanSnapshot(criteria, res.hits, res.total, res.durationMs).catch(() => {});
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {

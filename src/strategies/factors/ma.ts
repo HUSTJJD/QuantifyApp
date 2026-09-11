@@ -2,7 +2,7 @@
  * 均线交叉因子：MA fast 上穿/下穿 MA slow。
  * score：金叉 +1，死叉 -1，其余 0；triggered 标记事件。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { sma, closes } from '@/quant/indicators';
 import type { FactorDef, FactorResult } from '../types';
 

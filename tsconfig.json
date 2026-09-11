@@ -1,22 +1,15 @@
 {
-  "extends": "@react-native/typescript-config",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "customConditions": ["react-native-strict-api"],
-    "baseUrl": ".",
+    "strict": true,
     "paths": {
-      "@/*": ["src/*"],
-      "@/api": ["src/data/api"],
-      "@/api/*": ["src/data/api/*"],
-      "@/db": ["src/data/db"],
-      "@/db/*": ["src/data/db/*"],
-      "@/cache": ["src/data/cache"],
-      "@/cache/*": ["src/data/cache/*"],
-      "@/sync": ["src/data/sync"],
-      "@/sync/*": ["src/data/sync/*"],
-      "@/repositories": ["src/data/repositories"],
-      "@/repositories/*": ["src/data/repositories/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ]
 }

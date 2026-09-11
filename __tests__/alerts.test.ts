@@ -1,5 +1,5 @@
 import { detectAlerts, DEFAULT_ALERT_RULES, type AlertInput } from '@/features/watchlist/alerts';
-import type { Symbol, Quote, Candle } from '@/api';
+import type { Symbol, Quote, Candle } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '茅台' };
 
