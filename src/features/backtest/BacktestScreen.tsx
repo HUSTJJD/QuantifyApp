@@ -27,10 +27,9 @@ export function BacktestScreen({ onBack }: { onBack?: () => void }): React.JSX.E
 
   const result = useMemo(() => {
     if (!kline || kline.length < 30) return null;
-    const strat = activeStrategies({ 
-      enabled: { ma_cross: true },
-      params: { ma_cross: { fast: 5, slow: 10 } },
-      weights: { ma_cross: 1 },})[0];
+    const strat = activeStrategies({
+      enabled: { trend_confirm: true },
+    })[0];
     return runBacktest(strat, kline, { initCash: 100_000 });
   }, [kline]);
 

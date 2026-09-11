@@ -197,7 +197,9 @@ function autoReason(rule: CompositeRule): string {
   return `${rule.mode === 'and' ? '同时满足' : '满足任一'}：${parts.join('、')}`;
 }
 
-/** 评估组合策略：命中第一条规则即返回信号 */
+/** 评估组合策略：命中第一条规则即返回信号。
+ *  强度按 side 归一：sell 强制为负、buy 强制为正，避免自定义规则符号写反导致信号翻转。
+ */
 export function evaluateComposite(
   def: CompositeStrategyDef,
   candles: Candle[],
@@ -206,10 +208,12 @@ export function evaluateComposite(
   if (!snap) return null;
   for (const rule of def.rules) {
     if (ruleHit(rule, snap)) {
+      const mag = Math.abs(rule.strength ?? 2);
+      const strength = rule.side === 'sell' ? -mag : mag;
       return {
         side: rule.side,
         reason: rule.reason ?? autoReason(rule),
-        strength: rule.strength ?? 2,
+        strength,
       };
     }
   }
@@ -219,97 +223,49 @@ export function evaluateComposite(
 /* ------------------------------ 预置组合模板 ------------------------------ */
 
 /**
- * 趋势确认买入：MA 金叉 + RSI 未超买 + 放量
- * —— 比单 MA 金叉更稳，过滤假突破
+ * 唯一内置策略：趋势确认（Trend Confirm）。
+ *
+ * 买入（AND 全部满足）：
+ *  1. MA5 上穿 MA20 —— 短期动量转多
+ *  2. RSI14 < 60    —— 尚未超买，追高风险低
+ *  3. 量比 ≥ 1.2    —— 有资金配合，假突破概率低
+ *  4. 收盘 > MA60   —— 长期趋势向上，顺势
+ *
+ * 卖出（OR 任一满足）：
+ *  1. MA5 下穿 MA20 —— 动量转空
+ *  2. RSI14 > 70    —— 超买，止盈/避回撤
+ *
+ * 设计取舍：四条件同时过滤「假金叉 / 超买追高 / 无量拉升 / 逆势」，
+ * 命中率低于单指标，但单次信号质量更高。
  */
-export const TREND_CONFIRM_BUY: CompositeStrategyDef = {
-  id: 'trend_confirm_buy',
-  label: '趋势确认买入',
+export const TREND_CONFIRM: CompositeStrategyDef = {
+  id: 'trend_confirm',
+  label: '趋势确认',
   rules: [
     {
       mode: 'and',
       side: 'buy',
       strength: 2,
-      reason: 'MA金叉 + RSI<60 + 放量1.2倍',
+      reason: '趋势确认买入：MA金叉+RSI<60+放量+站上MA60',
       conditions: [
         { kind: 'cross_above', left: 'ma5', right: 'ma20' },
         { kind: 'compare', indicator: 'rsi14', op: '<', value: 60 },
         { kind: 'vol_ratio', op: '>=', value: 1.2 },
-      ],
-    },
-  ],
-};
-
-/** MACD 金叉 + 站上 MA20 */
-export const MACD_TREND: CompositeStrategyDef = {
-  id: 'macd_trend',
-  label: 'MACD 趋势',
-  rules: [
-    {
-      mode: 'and',
-      side: 'buy',
-      strength: 2,
-      reason: 'MACD金叉 + 收盘>MA20',
-      conditions: [
-        { kind: 'cross_above', left: 'macd_dif', right: 'macd_dea' },
-        { kind: 'compare_ind', left: 'close', op: '>', right: 'ma20' },
+        { kind: 'compare_ind', left: 'close', op: '>', right: 'ma60' },
       ],
     },
     {
-      mode: 'and',
+      mode: 'or',
       side: 'sell',
-      strength: 2,
-      reason: 'MACD死叉 + 收盘<MA20',
+      strength: -2,
+      reason: '趋势确认卖出：MA死叉或RSI超买',
       conditions: [
-        { kind: 'cross_below', left: 'macd_dif', right: 'macd_dea' },
-        { kind: 'compare_ind', left: 'close', op: '<', right: 'ma20' },
+        { kind: 'cross_below', left: 'ma5', right: 'ma20' },
+        { kind: 'compare', indicator: 'rsi14', op: '>', value: 70 },
       ],
     },
   ],
 };
 
-/** 超卖反弹：RSI<30 后回升 + 放量 */
-export const OVERSOLD_BOUNCE: CompositeStrategyDef = {
-  id: 'oversold_bounce',
-  label: '超卖反弹',
-  rules: [
-    {
-      mode: 'and',
-      side: 'buy',
-      strength: 1,
-      reason: 'RSI<35 + 量比≥1.5',
-      conditions: [
-        { kind: 'compare', indicator: 'rsi14', op: '<', value: 35 },
-        { kind: 'vol_ratio', op: '>=', value: 1.5 },
-      ],
-    },
-  ],
-};
-
-/** 突破回踩：创20日新高后回踩 MA10 且 RSI 中性 */
-export const BREAKOUT_PULLBACK: CompositeStrategyDef = {
-  id: 'breakout_pullback',
-  label: '突破回踩',
-  rules: [
-    {
-      mode: 'and',
-      side: 'buy',
-      strength: 2,
-      reason: '收盘>20日高 + 回踩MA10附近 + RSI 40-65',
-      conditions: [
-        { kind: 'compare_ind', left: 'close', op: '>', right: 'high20' },
-        { kind: 'compare_ind', left: 'close', op: '>=', right: 'ma10' },
-        { kind: 'compare', indicator: 'rsi14', op: '>=', value: 40 },
-        { kind: 'compare', indicator: 'rsi14', op: '<=', value: 65 },
-      ],
-    },
-  ],
-};
-
-/** 预置组合模板（可按需增删） */
-export const COMPOSITE_PRESETS: CompositeStrategyDef[] = [
-  TREND_CONFIRM_BUY,
-  MACD_TREND,
-  OVERSOLD_BOUNCE,
-  BREAKOUT_PULLBACK,
-];
+/** 预置组合模板：仅内置趋势确认（其余可由用户自定义 CompositeStrategyDef） */
+export const COMPOSITE_PRESETS: CompositeStrategyDef[] = [TREND_CONFIRM];

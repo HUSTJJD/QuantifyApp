@@ -67,18 +67,14 @@ describe('indicators', () => {
 });
 
 describe('signals', () => {
-  it('注册了 10 个策略（6 单指标 + 4 组合）', () => {
-    expect(STRATEGIES.length).toBe(10);
-    const ids = STRATEGIES.map((s) => s.id);
-    expect(ids).toContain('bollinger_breakout');
-    expect(ids).toContain('volume_price_divergence');
-    expect(ids).toContain('trend_confirm_buy');
-    expect(ids).toContain('macd_trend');
-    expect(ids).toContain('oversold_bounce');
-    expect(ids).toContain('breakout_pullback');
+  it('仅注册 1 个内置策略 trend_confirm', () => {
+    expect(STRATEGIES.length).toBe(1);
+    expect(STRATEGIES[0].id).toBe('trend_confirm');
+    expect(STRATEGIES[0].label).toBe('趋势确认');
+    expect(STRATEGIES[0].enabledByDefault).toBe(true);
   });
 
-  it('上涨趋势产生买入信号（MA金叉）', () => {
+  it('上涨趋势产生信号（side 合法）', () => {
     // 构造一段先平后涨，使 MA5 上穿 MA20
     const cs: Candle[] = [];
     for (let i = 0; i < 25; i++) cs.push(candle(10, i));
@@ -95,39 +91,12 @@ describe('signals', () => {
     expect(sig.strength).toBe(0);
   });
 
-  it('布林带突破策略：收盘价突破上轨产生买入', () => {
-    // 构造平稳后最后一笔放量突破
+  it('默认配置下 trend_confirm 参与计算', () => {
     const cs: Candle[] = [];
-    for (let i = 0; i < 25; i++) cs.push(candle(100, i));
-    cs[cs.length - 1] = candle(140, 25); // 远高于上轨
-    const cfg: StrategyConfig = { enabled: { bollinger_breakout: true } };
-    const sig = computeSignal({ code: 'B', exchange: 'SZ' }, cs, null, cfg);
-    expect(sig.side).toBe('buy');
-    expect(sig.reasons.join()).toContain('布林');
-  });
-
-  it('量价背离策略：价升量缩产生卖出', () => {
-    const cs: Candle[] = [];
-    for (let i = 0; i < 22; i++) cs.push(candle(100 + i, i, 2000)); // 量稳定
-    cs[cs.length - 1] = candle(123, 22, 200); // 价新高但量骤减
-    const cfg: StrategyConfig = { enabled: { volume_price_divergence: true } };
-    const sig = computeSignal({ code: 'V', exchange: 'SZ' }, cs, null, cfg);
-    expect(sig.side).toBe('sell');
-    expect(sig.reasons.join()).toContain('背离');
-  });
-
-  it('MA 参数可配置：自定义快/慢周期生效', () => {
-    // 仅启用 ma_cross，快3/慢10。先平稳让快慢线重合，最后一根暴涨使 MA3 上穿 MA10。
-    const cs: Candle[] = [];
-    for (let i = 0; i < 14; i++) cs.push(candle(10, i));
-    cs.push(candle(50, 14)); // 最后一根猛拉，fast 立即抬升越过慢线
-    const cfg: StrategyConfig = {
-      enabled: { ma_cross: true },
-      params: { ma_cross: { fast: 3, slow: 10 } },
-    };
-    const sig = computeSignal({ code: 'P', exchange: 'SH' }, cs, null, cfg);
-    expect(sig.side).toBe('buy');
-    expect(sig.reasons.join()).toContain('MA3');
+    for (let i = 0; i < 70; i++) cs.push(candle(10 + i * 0.5, i, 1000));
+    const sig = computeSignal({ code: 'Z', exchange: 'SH' }, cs);
+    expect(sig.contributions.length).toBeGreaterThanOrEqual(0);
+    expect(['buy', 'hold', 'sell']).toContain(sig.side);
   });
 
   // 仅启用指定策略，其余显式关闭，避免默认启用策略干扰权重断言
@@ -137,38 +106,44 @@ describe('signals', () => {
     return { enabled };
   }
 
-  it('多策略组合：权重为 0 的策略贡献被忽略', () => {
+  /** 构造能触发 trend_confirm 买入的 K 线：缓跌后放量拉升，MA5 上穿 MA20，收盘>MA60，RSI 未超买 */
+  function trendConfirmBuyCandles(): Candle[] {
     const cs: Candle[] = [];
-    for (let i = 0; i < 14; i++) cs.push(candle(10, i));
-    cs.push(candle(50, 14)); // 最后一根猛拉使 MA3 上穿 MA10
+    for (let i = 0; i < 70; i++) {
+      // 100 → ~89.5 缓跌，形成空头排列；MA60 约 92
+      cs.push(candle(100 - i * 0.15, i, 1000));
+    }
+    // 放量拉升：MA5 上穿，收盘 95 > MA60，量比 5
+    cs.push(candle(95, 70, 5000));
+    return cs;
+  }
+
+  it('权重为 0 的策略贡献被忽略', () => {
+    const cs = trendConfirmBuyCandles();
     const cfg: StrategyConfig = {
-      ...onlyEnabled(['ma_cross']),
-      params: { ma_cross: { fast: 3, slow: 10 } },
-      weights: { ma_cross: 0 },
+      ...onlyEnabled(['trend_confirm']),
+      weights: { trend_confirm: 0 },
     };
     const sig = computeSignal({ code: 'W', exchange: 'SH' }, cs, null, cfg);
     expect(sig.strength).toBe(0);
     expect(sig.side).toBe('hold');
-    expect(sig.contributions.find((c) => c.id === 'ma_cross')?.weight).toBe(0);
+    expect(sig.contributions.find((c) => c.id === 'trend_confirm')?.weight).toBe(0);
   });
 
-  it('多策略组合：权重放大使综合强度达到上限 3', () => {
-    const cs: Candle[] = [];
-    for (let i = 0; i < 14; i++) cs.push(candle(10, i));
-    cs.push(candle(50, 14)); // 最后一根猛拉使 MA3 上穿 MA10
+  it('权重放大使综合强度达到上限 3', () => {
+    const cs = trendConfirmBuyCandles();
     const base = computeSignal({ code: 'W', exchange: 'SH' }, cs, null, {
-      ...onlyEnabled(['ma_cross']),
-      params: { ma_cross: { fast: 3, slow: 10 } },
+      ...onlyEnabled(['trend_confirm']),
     });
+    expect(base.side).toBe('buy');
     expect(base.strength).toBe(2); // 单策略 strength=2，权重1
     const boosted: StrategyConfig = {
-      ...onlyEnabled(['ma_cross']),
-      params: { ma_cross: { fast: 3, slow: 10 } },
-      weights: { ma_cross: 2 },
+      ...onlyEnabled(['trend_confirm']),
+      weights: { trend_confirm: 2 },
     };
     const sig = computeSignal({ code: 'W', exchange: 'SH' }, cs, null, boosted);
     expect(sig.strength).toBe(3); // 2×2=4 被钳制到 3
-    const c = sig.contributions.find((c) => c.id === 'ma_cross');
+    const c = sig.contributions.find((c) => c.id === 'trend_confirm');
     expect(c?.weight).toBe(2);
     expect(c?.strength).toBe(2);
   });

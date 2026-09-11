@@ -152,15 +152,8 @@ export function evaluateProfile(p: StrategyProfile, candles: Candle[], quote?: Q
 
 /** 参数编辑器元数据（由 defaultParams key → 中文标签 + 步进范围）。 */
 export const PARAM_SPECS: Record<string, { key: string; label: string; min?: number; max?: number; step?: number }[]> = {
-  ma_cross: [
-    { key: 'fast', label: '快线周期', min: 2, max: 120, step: 1 },
-    { key: 'slow', label: '慢线周期', min: 3, max: 250, step: 1 },
-  ],
-  bollinger_breakout: [
-    { key: 'period', label: '布林周期', min: 5, max: 120, step: 1 },
-    { key: 'k', label: '标准差倍数', min: 1, max: 4, step: 0.1 },
-  ],
-  volume_price_divergence: [{ key: 'window', label: '背离窗口', min: 5, max: 60, step: 1 }],
+  // 趋势确认当前无运行时参数（条件阈值写死在 composite.ts 规则里）
+  trend_confirm: [],
 };
 
 export function paramSpecsOf(templateId: string): { key: string; label: string; min?: number; max?: number; step?: number }[] {
