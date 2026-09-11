@@ -1,14 +1,20 @@
 ---
 feature: strategy-factor-framework
-status: in-progress
+status: delivered
 updated: 2026-09-11
 branch: feat/strategy-factor-framework
-commits: # filled at delivery
+commits: ad13601..b94ba20
 ---
 
 # 多因子策略框架 + 目录分层重组
 
 ## Report
+
+**What was built** — `src/strategies/` 多因子框架：7 个可调参因子、规则 DSL（score/triggered/cross × AND/OR）、评估引擎、3 个精选模板（默认 trend_confirm）。数据层物理迁至 `src/data/`，旧路径 re-export 垫片保兼容。
+
+**Verification** — tsc PASS；yarn test PASS 511 passed / 5 skipped / 47 suites（含 strategiesFramework.test 12 用例）。
+
+**Journey log** — 1) moduleNameMapper 对 `@/db` 别名解析不稳，物理目录 + re-export 垫片更可靠；2) jest.setup 用相对路径 require 更稳；3) 测试期望需与「3 模板 / 默认 1 个」对齐。
 
 ## [S1] Problem
 
@@ -158,10 +164,10 @@ src/
 
 ## Tasks
 
-- [ ] T1: 创建 `src/strategies/types.ts` + 因子注册表类型 — acceptance: 类型可编译，FactorDef/StrategyTemplate 接口完整 (covers: S2.1 S2.2)
-- [ ] T2: 实现 7 个因子（ma/macd/rsi/volume/breakout/boll/ma_trend）— acceptance: 每个因子有单测，score/triggered 符合语义 (covers: S2.1)
-- [ ] T3: 实现 `engine.ts`（buildFactorCache + evaluateStrategy）— acceptance: AND/OR 规则单测通过 (covers: S2.2)
-- [ ] T4: 实现 3 个内置模板 + 注册导出 — acceptance: STRATEGY_TEMPLATES 含 3 项，默认 trend_confirm (covers: S2.3)
-- [ ] T5: 目录分层：迁 api/db/cache/sync/repositories → data/，配置 path 别名 — acceptance: tsc 通过，`@/api` 等 import 仍可用 (covers: S2.4)
-- [ ] T6: 清理 quant/ 中 strategies/composite/signals 旧实现，接线新引擎 — acceptance: SignalEngine/backtest 走新模板，全量测试通过 (covers: S2.5)
-- [ ] T7: 更新 openspec/strategy spec 与 quant 测试 — acceptance: 新单测全绿，spec 与实现一致 (covers: S2.1-S2.5)
+- [x] T1: 创建 `src/strategies/types.ts` + 因子注册表类型 — acceptance: 类型可编译，FactorDef/StrategyTemplate 接口完整 (covers: S2.1 S2.2)
+- [x] T2: 实现 7 个因子（ma/macd/rsi/volume/breakout/boll/ma_trend）— acceptance: 每个因子有单测，score/triggered 符合语义 (covers: S2.1)
+- [x] T3: 实现 `engine.ts`（buildFactorCache + evaluateStrategy）— acceptance: AND/OR 规则单测通过 (covers: S2.2)
+- [x] T4: 实现 3 个内置模板 + 注册导出 — acceptance: STRATEGY_TEMPLATES 含 3 项，默认 trend_confirm (covers: S2.3)
+- [x] T5: 目录分层：迁 api/db/cache/sync/repositories → data/，配置 path 别名 — acceptance: tsc 通过，`@/api` 等 import 仍可用 (covers: S2.4)
+- [x] T6: 清理 quant/ 中 strategies/composite/signals 旧实现，接线新引擎 — acceptance: SignalEngine/backtest 走新模板，全量测试通过 (covers: S2.5)
+- [x] T7: 更新 openspec/strategy spec 与 quant 测试 — acceptance: 新单测全绿，spec 与实现一致 (covers: S2.1-S2.5)
