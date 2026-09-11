@@ -67,11 +67,17 @@ describe('indicators', () => {
 });
 
 describe('signals', () => {
-  it('仅注册 1 个内置策略 trend_confirm', () => {
-    expect(STRATEGIES.length).toBe(1);
-    expect(STRATEGIES[0].id).toBe('trend_confirm');
-    expect(STRATEGIES[0].label).toBe('趋势确认');
-    expect(STRATEGIES[0].enabledByDefault).toBe(true);
+  it('注册 3 个精选模板，默认仅 trend_confirm 启用', () => {
+    expect(STRATEGIES.length).toBe(3);
+    const ids = STRATEGIES.map((s) => s.id);
+    expect(ids).toContain('trend_confirm');
+    expect(ids).toContain('oversold_bounce');
+    expect(ids).toContain('breakout_momentum');
+    const def = STRATEGIES.find((s) => s.id === 'trend_confirm');
+    expect(def?.label).toBe('趋势确认');
+    expect(def?.enabledByDefault).toBe(true);
+    // 其余模板默认关闭
+    expect(STRATEGIES.find((s) => s.id === 'oversold_bounce')?.enabledByDefault).toBe(false);
   });
 
   it('上涨趋势产生信号（side 合法）', () => {

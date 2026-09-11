@@ -1,12 +1,14 @@
 /**
- * 量化策略注册表。
+ * 量化策略注册表（桥接层）。
  *
- * 设计约定：策略一律以「组合规则」表达（见 composite.ts），
- * 注册表只保留一个精心内置的策略；用户自定义 CompositeStrategyDef 可后续扩展。
- *
- * 单指标策略已移除——单指标噪音大、假信号多，不适合直接当交易依据。
+ * 策略一律以「多因子组合规则」表达（见 src/strategies/）。
+ * 本文件把 StrategyTemplate 包装成旧引擎可用的 Strategy，
+ * 供 SignalEngine / 回测 / 模拟盘统一调用。
  */
 import type { Candle, Quote } from '@/api';
+import { evaluateStrategy } from '@/strategies/engine';
+import { STRATEGY_TEMPLATES, DEFAULT_TEMPLATE_ID } from '@/strategies/templates';
+import type { StrategyTemplate } from '@/strategies/types';
 
 export type SignalSide = 'buy' | 'sell' | 'hold';
 
@@ -27,36 +29,35 @@ export interface StrategyContext {
 export interface Strategy {
   id: string;
   label: string;
-  /** 默认是否启用 */
+  /** 默认是否启用（仅默认模板启用） */
   enabledByDefault: boolean;
-  /** 可选策略参数（如均线周期），可被用户配置覆盖 */
+  /** 可选策略参数（因子参数覆盖，供 UI 调参） */
   defaultParams?: Record<string, number>;
   evaluate: (candles: Candle[], ctx: StrategyContext) => PartialSignal | null;
 }
 
-/**
- * 把组合规则模板包装成 Strategy，供信号引擎 / 回测统一调用。
- * composite 只依赖 indicators + 本文件类型，延迟 require 避免循环依赖。
- */
-function compositePresetsAsStrategies(): Strategy[] {
-  const { evaluateComposite, COMPOSITE_PRESETS } = require('./composite') as typeof import('./composite');
-  return COMPOSITE_PRESETS.map((def) => ({
-    id: def.id,
-    label: def.label,
-    enabledByDefault: true,
-    evaluate: (candles: Candle[], _ctx: StrategyContext): PartialSignal | null =>
-      evaluateComposite(def, candles),
-  }));
+/** 把多因子模板包装成 Strategy */
+function templateAsStrategy(tpl: StrategyTemplate): Strategy {
+  return {
+    id: tpl.id,
+    label: tpl.label,
+    enabledByDefault: tpl.id === DEFAULT_TEMPLATE_ID,
+    evaluate: (candles: Candle[]): PartialSignal | null => {
+      const sig = evaluateStrategy(tpl, candles);
+      if (!sig) return null;
+      return { side: sig.side, reason: sig.reason, strength: sig.strength };
+    },
+  };
 }
 
-/** 唯一内置策略：趋势确认（多指标 AND/OR）。 */
-export const STRATEGIES: Strategy[] = compositePresetsAsStrategies();
+/** 全部已注册策略（来自多因子模板） */
+export const STRATEGIES: Strategy[] = STRATEGY_TEMPLATES.map(templateAsStrategy);
 
 export interface StrategyConfig {
   enabled: Record<string, boolean>;
   /** 各策略的覆盖参数（可选），key 为策略 id */
   params?: Record<string, Record<string, number>>;
-  /** 各策略的合并权重（可选，默认 1），key 为策略 id；最终强度 = Σ(策略强度 × 权重) */
+  /** 各策略的合并权重（可选，默认 1）；最终强度 = Σ(策略强度 × 权重) */
   weights?: Record<string, number>;
 }
 
