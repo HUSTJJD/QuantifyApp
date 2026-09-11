@@ -1,6 +1,6 @@
 /**
  * 键值存储层统一出口（Barrel）+ 默认实例（db 模块的 KV 子层）。
- * 业务层只 import { storage } from '@/db/storage'。
+ * 业务层只 import { storage } from '@/data/db/storage'。
  *
  * 定位：本层只负责「小体量、整存整取」的键值数据（设置项、行情缓存、搜索/告警历史等），
  * 与上层 SQLite 主库分工明确：
@@ -43,9 +43,9 @@ export const StorageKeys = {
   KLINE_CACHE_PREFIX: 'app.cache.kline.',
   METHOD_CACHE_PREFIX: 'app.cache.mdc.',
   SIGNAL_PREFIX: 'app.signal.',
-  SIGNAL_CONFIG: 'app.signal.config',
   STRATEGY_PROFILES: 'app.strategy.profiles',
   THEME_MODE: 'app.theme.mode',
+  UPDOWN_SCHEME: 'app.theme.updown',
   ALERT_HISTORY: 'app.alert.history',
   SEARCH_HISTORY: 'app.search.history',
 } as const;

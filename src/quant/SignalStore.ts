@@ -1,74 +1,88 @@
 /**
- * 信号存储：内存热缓存 + SQLite trade_signal 表。
- * 行情刷新后由 SignalEngine 算出信号写入；UI 通过 getLatest/getAll 读取。
+ * 信号存储：内存热缓存 + SQLite trade_signal。
+ * 键 = profileId|symbolKey；UI 可按标的取最强信号或按档案取全部。
  */
-import { quantStore } from '@/db/QuantStore';
-import type { Symbol } from '@/api';
+import { quantStore } from '@/data/db/QuantStore';
+import type { Symbol } from '@/data/api';
+import type { TradeSignal } from '@/domain';
 import { toFullCode } from '@/domain';
-import type { TradeSignal } from './signals';
-import type { StrategyConfig } from './strategies';
-import { storage, StorageKeys } from '@/db/storage';
 
-/** 内存热表（避免每次读盘）。 */
 const memory = new Map<string, TradeSignal>();
 
+function keyOf(profileId: string, symbolKey: string): string {
+  return `${profileId}|${symbolKey}`;
+}
+
 export function saveSignal(sig: TradeSignal): void {
-  memory.set(sig.symbolKey, sig);
-  void quantStore()
+  memory.set(keyOf(sig.profileId, sig.symbolKey), sig);
+  quantStore()
     .upsertSignal({
-      symbolKey: sig.symbolKey,
+      symbolKey: keyOf(sig.profileId, sig.symbolKey),
       code: sig.symbol.code,
       exchange: sig.symbol.exchange,
       side: sig.side,
       strength: sig.strength,
       reasons: sig.reasons,
-      details: JSON.stringify(sig.contributions ?? []),
+      details: JSON.stringify({
+        profileId: sig.profileId,
+        profileName: sig.profileName,
+        contributions: sig.contributions ?? [],
+      }),
       ts: sig.ts,
     })
     .catch(() => {});
 }
 
+export function getForSymbol(symbol: Symbol): TradeSignal[] {
+  const k = toFullCode(symbol);
+  return [...memory.values()].filter((s) => s.symbolKey === k);
+}
+
 export function getLatest(symbol: Symbol): TradeSignal | undefined {
-  return memory.get(toFullCode(symbol));
+  const list = getForSymbol(symbol);
+  if (list.length === 0) return undefined;
+  return list.reduce((a, b) => (Math.abs(b.strength) > Math.abs(a.strength) ? b : a));
 }
 
 export async function getAll(): Promise<TradeSignal[]> {
-  if (memory.size > 0) return Array.from(memory.values());
+  if (memory.size > 0) return [...memory.values()];
   const rows = await quantStore().listSignals();
-  const out = rows.map((r) => {
+  const out: TradeSignal[] = [];
+  for (const r of rows) {
+    const parts = String(r.symbolKey).split('|');
+    if (parts.length < 2) continue;
+    const profileId = parts[0];
+    const symbolKey = parts.slice(1).join('|');
+    let profileName = profileId;
     let contributions: TradeSignal['contributions'] = [];
     try {
-      contributions = JSON.parse(r.details) as TradeSignal['contributions'];
+      const d = JSON.parse(r.details) as {
+        profileName?: string;
+        contributions?: TradeSignal['contributions'];
+      };
+      profileName = d.profileName ?? profileId;
+      contributions = d.contributions ?? [];
     } catch {
-      contributions = [];
+      // ignore
     }
+    const [exchange, code] = symbolKey.split('.');
     const sig: TradeSignal = {
-      symbol: { code: r.code, exchange: r.exchange as Symbol['exchange'] },
-      symbolKey: r.symbolKey,
+      symbol: { code: code ?? r.code, exchange: (exchange || r.exchange) as Symbol['exchange'] },
+      symbolKey,
       side: r.side as TradeSignal['side'],
       strength: r.strength,
+      profileId,
+      profileName,
       reasons: r.reasons,
       contributions,
       ts: r.ts,
     };
-    memory.set(sig.symbolKey, sig);
-    return sig;
-  });
+    memory.set(keyOf(profileId, symbolKey), sig);
+    out.push(sig);
+  }
   return out;
 }
 
-/** 加载并合并用户的策略开关配置（与默认值合并）。 */
-export async function loadStrategyConfig(): Promise<StrategyConfig> {
-  // 信号聚合配置体量小，仍走 KV（非核心行情数据）
-  const saved = await storage.getObject<StrategyConfig>(StorageKeys.SIGNAL_CONFIG);
-  return saved ?? { enabled: {} };
-}
-
-export async function saveStrategyConfig(cfg: StrategyConfig): Promise<void> {
-  await storage.setObject(StorageKeys.SIGNAL_CONFIG, cfg);
-}
-
-/** 清空全部信号（调试用）。 */
 export function clearSignals(): void {
   memory.clear();
 }

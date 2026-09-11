@@ -8,14 +8,14 @@
  *  - 历史兼容：早期页面误写 size={2}（2px 几乎不可见），此处兜底为默认尺寸，
  *    避免图标"看不见"；后续新代码请用语义尺寸或真实 px。
  *
- * 图标名统一来自 @/assets/icons（Icons 常量），唯一来源。
+ * 图标名统一来自 @/theme/icons（Icons 常量），唯一来源。
  */
 import React from 'react';
 import type { StyleProp, TextStyle } from 'react-native';
 import MCIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import type { ColorScheme } from '@/theme';
-import type { IconName } from '@/assets/icons';
+import type { IconName } from '@/theme/icons';
 
 export type IconSize = number | 'sm' | 'md' | 'lg' | 'xl';
 

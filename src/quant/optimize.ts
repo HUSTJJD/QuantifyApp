@@ -7,9 +7,9 @@
  * 注意：参数优化只在历史数据上有效，存在过拟合风险；本模块仅做"遍历+排序"，
  * 不含样本外验证，业务层应自行做 walk-forward / 区间外校验。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 import { runBacktest, type BacktestResult, type BacktestOptions } from './backtest';
-import type { Strategy } from './strategies';
+import type { ProfileEvaluator } from './profile';
 
 /** 参数网格：每个键对应一组候选取值。 */
 export type ParamGrid = Record<string, number[]>;
@@ -66,12 +66,12 @@ export function scoreOf(result: BacktestResult, metric: ScoreMetric): number {
 
 /**
  * 网格搜索最优参数。
- * @param makeStrategy 由一组参数构造 Strategy（例如把 param 注入 evaluate 的 context）。
+ * @param makeEvaluate 由一组参数构造 evaluate 函数。
  * @param candles 历史 K 线（升序）
  * @param grid 参数网格
  */
 export function gridSearch(
-  makeStrategy: (params: ParamCombo) => Strategy,
+  makeEvaluate: (params: ParamCombo) => ProfileEvaluator,
   candles: Candle[],
   grid: ParamGrid,
   opts: OptimizeOptions = {},
@@ -81,8 +81,8 @@ export function gridSearch(
   const combos = expandGrid(grid);
   const entries: OptimizeEntry[] = [];
   for (const params of combos) {
-    const strategy = makeStrategy(params);
-    const result = runBacktest(strategy, candles, opts);
+    const evaluate = makeEvaluate(params);
+    const result = runBacktest(evaluate, candles, opts);
     entries.push({ params, result, score: scoreOf(result, metric) });
   }
   entries.sort((a, b) => (maximize ? b.score - a.score : a.score - b.score));
@@ -91,11 +91,11 @@ export function gridSearch(
 
 /** 取最优一组（无组合返回 null）。 */
 export function bestParams(
-  makeStrategy: (params: ParamCombo) => Strategy,
+  makeEvaluate: (params: ParamCombo) => ProfileEvaluator,
   candles: Candle[],
   grid: ParamGrid,
   opts: OptimizeOptions = {},
 ): OptimizeEntry | null {
-  const all = gridSearch(makeStrategy, candles, grid, opts);
+  const all = gridSearch(makeEvaluate, candles, grid, opts);
   return all[0] ?? null;
 }

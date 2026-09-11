@@ -13,8 +13,8 @@
  * 纯函数 `mergeAlertEvents` 负责去重合并，便于单测。
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
-import { storage, StorageKeys } from '@/db/storage';
-import { getSqlite } from '@/db/connection';
+import { storage, StorageKeys } from '@/data/db/storage';
+import { getSqlite } from '@/data/db/connection';
 import type { AlertEvent } from './alerts';
 
 /** 历史记录上限：超过则丢弃最旧的。 */

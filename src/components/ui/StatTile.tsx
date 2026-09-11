@@ -5,7 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { spacing, fontSize, fontWeight } from '@/theme';
+import { fontSize, fontWeight } from '@/theme';
 
 export function StatTile({
   value,

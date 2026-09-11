@@ -1,34 +1,41 @@
 /**
- * 量化策略档案（Strategy Profile）数据模型。
+ * 策略档案（Strategy Profile）—— 唯一的策略用户模型。
  *
- * 从「信号」升级为「可编辑策略」：一个策略档案 = 一个可独立运行的交易系统，
- * 包含：选股标准（范围/过滤）、买卖信号（指标参数）、止盈止损/移动止损、
- * 交易规则（时段 / K线周期 / 仓位 / 最大持仓数）。
- *
- * 说明：买卖信号复用 src/quant/strategies.ts 注册表里的指标引擎作为「信号内核」，
- * 策略档案是对它的可编辑配置层；后续可按需求迭代新增选股模型/风控等能力。
+ * 一个档案 = 选股 + legs[]（多条策略模板）+ combineMode + 风控/交易规则。
+ * templateId 只属于腿，不属于档案；没有「信号内核」绑定。
  */
-import type { Candle, Quote } from '@/api';
-import { STRATEGIES, type Strategy, type PartialSignal } from './strategies';
+import type { Candle, Quote } from '@/data/api';
+import type { PartialSignal } from '@/domain';
+import { evaluateStrategy } from './core/engine';
+import { getTemplate } from './core/templates';
+import { getFactor } from './core/factors';
+import { factorsUsedBy } from './core/engine';
+import { STRATEGY_TEMPLATES } from './core/templates';
 import { chinaParts } from '@/utils/trading';
 
 /* ---------------------------------- 枚举 ---------------------------------- */
 
-/** 选股范围（v0：自选股池，后续可扩展全市场扫描） */
-export type Universe = 'watchlist';
-/** 可交易的 K 线周期（SignalEngine 支持的子集） */
+export type Universe = 'watchlist' | 'scan';
 export type SignalPeriod = 'day' | '60m' | '30m' | '15m' | '5m' | '1m';
-/** 交易时段（早盘/盘中/尾盘/全天） */
 export type TradeSession = 'early' | 'intraday' | 'late' | 'any';
+export type CombineMode = 'and' | 'or' | 'vote';
 
-export const UNIVERSE_LABEL: Record<Universe, string> = { watchlist: '自选股' };
+export const COMBINE_LABEL: Record<CombineMode, string> = {
+  and: '全部满足(AND)',
+  or: '任一满足(OR)',
+  vote: '加权投票',
+};
+
+export const UNIVERSE_LABEL: Record<Universe, string> = {
+  watchlist: '自选股',
+  scan: '最近扫描命中',
+};
 export const PERIOD_LABELS: Record<SignalPeriod, string> = {
   day: '日K', '60m': '60分', '30m': '30分', '15m': '15分', '5m': '5分', '1m': '1分',
 };
 export const SESSION_LABELS: Record<TradeSession, string> = {
   any: '全天', early: '早盘(9:30-10:30)', intraday: '盘中', late: '尾盘(14:30-15:00)',
 };
-/** 早盘/盘中/尾盘的分钟边界（盘中覆盖两段） */
 const SESSION_RANGES: Record<Exclude<TradeSession, 'any'>, [number, number][]> = {
   early: [[9 * 60 + 30, 10 * 60 + 30]],
   intraday: [
@@ -40,52 +47,43 @@ const SESSION_RANGES: Record<Exclude<TradeSession, 'any'>, [number, number][]> =
 
 /* ---------------------------------- 规则 ---------------------------------- */
 
-/** 选股标准：范围 + 简单过滤条件（value<=0 表示不限制） */
 export interface SelectionRules {
   universe: Universe;
-  /** 股价上限（元），0 = 不限 */
   priceMax: number;
-  /** 最小成交额（万元），0 = 不限 */
   minTurnoverWan: number;
 }
 
-/** 止盈止损（0 = 关闭；百分比为正数）。trailingPct>0 即开启移动止损 */
 export interface ExitRules {
-  /** 止盈：相对成本价上涨达到该百分比平仓 */
   takeProfitPct: number;
-  /** 止损：相对成本价下跌达到该百分比平仓 */
   stopLossPct: number;
-  /** 移动止损距离（百分比），>0 开启 */
   trailingPct: number;
 }
 
-/** 交易规则 */
 export interface TradeRules {
-  /** 允许下单时段（any=全交易时段） */
   session: TradeSession;
-  /** 信号计算使用的 K 线周期 */
   period: SignalPeriod;
-  /** 单笔仓位比例 0~1 */
   positionRatio: number;
-  /** 同时最大持仓数 */
   maxPositions: number;
 }
 
-/** 策略档案（用户可编辑单元） */
-export interface StrategyProfile {
-  /** 唯一 id（= templateId，同模板只允许一个档案，保证信号配置可映射） */
-  id: string;
-  /** 对应 strategies.ts 里信号内核策略的 id */
+export interface StrategyLeg {
+  /** quant/core/templates 中的 id */
   templateId: string;
-  /** 用户自定义名称（默认取模板 label） */
+  enabled: boolean;
+  /** vote 模式权重（>=1）；and/or 忽略 */
+  weight: number;
+  /** 覆盖该腿因子参数，扁平 key = `factorId.paramKey` */
+  params: Record<string, number>;
+}
+
+export interface StrategyProfile {
+  id: string;
   name: string;
-  /** 描述（模板 label + 一句话） */
   note: string;
   enabled: boolean;
-  /** 开启专属模拟盘：行情时段内出现信号自动触发交易 */
   autoTrade: boolean;
-  /** 买卖信号指标参数（覆盖模板 defaultParams） */
-  params: Record<string, number>;
+  legs: StrategyLeg[];
+  combineMode: CombineMode;
   selection: SelectionRules;
   exit: ExitRules;
   trade: TradeRules;
@@ -95,11 +93,19 @@ export interface StrategyProfile {
 
 /* ------------------------------- 工厂/辅助 ------------------------------- */
 
-export function templateById(templateId: string): Strategy | undefined {
-  return STRATEGIES.find((s) => s.id === templateId);
+export function templateById(templateId: string) {
+  return STRATEGY_TEMPLATES.find((s) => s.id === templateId);
 }
 
-/** 默认选股/止盈/交易规则（新建档案用） */
+export function legLabel(leg: StrategyLeg): string {
+  return templateById(leg.templateId)?.label ?? leg.templateId;
+}
+
+export function profileLegsSummary(p: StrategyProfile): string {
+  const names = p.legs.filter((l) => l.enabled).map(legLabel);
+  return names.length > 0 ? names.join(' + ') : '（无策略腿）';
+}
+
 export function defaultSelection(): SelectionRules {
   return { universe: 'watchlist', priceMax: 0, minTurnoverWan: 0 };
 }
@@ -110,18 +116,36 @@ export function defaultTradeRules(): TradeRules {
   return { session: 'any', period: 'day', positionRatio: 1 / 3, maxPositions: 1 };
 }
 
-/** 从模板创建默认档案（id = templateId） */
-export function createProfileFromTemplate(templateId: string, now = Date.now()): StrategyProfile {
+export function newProfileId(now = Date.now()): string {
+  return `sp_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function makeLeg(templateId: string, params: Record<string, number> = {}, weight = 1): StrategyLeg {
+  return { templateId, enabled: true, weight, params: { ...params } };
+}
+
+export function makeLegFromTemplate(templateId: string): StrategyLeg {
   const t = templateById(templateId);
   if (!t) throw new Error(`未知策略模板: ${templateId}`);
+  return makeLeg(templateId);
+}
+
+export function createProfile(
+  legTemplateIds: string[],
+  opts?: { name?: string; combineMode?: CombineMode; now?: number },
+): StrategyProfile {
+  if (!legTemplateIds.length) throw new Error('策略档案至少需要一条策略腿');
+  const legs = legTemplateIds.map(makeLegFromTemplate);
+  const now = opts?.now ?? Date.now();
+  const name = opts?.name ?? (legs.length === 1 ? legLabel(legs[0]) : legs.map(legLabel).join('+'));
   return {
-    id: templateId,
-    templateId,
-    name: t.label,
-    note: t.label,
-    enabled: t.enabledByDefault,
+    id: newProfileId(now),
+    name,
+    note: name,
+    enabled: true,
     autoTrade: false,
-    params: { ...(t.defaultParams ?? {}) },
+    legs,
+    combineMode: opts?.combineMode ?? 'and',
     selection: defaultSelection(),
     exit: defaultExit(),
     trade: defaultTradeRules(),
@@ -130,39 +154,143 @@ export function createProfileFromTemplate(templateId: string, now = Date.now()):
   };
 }
 
-/** 把档案换算成引擎可执行的 Strategy（回测 / 全局信号聚合用）。 */
-export function strategyOfProfile(p: StrategyProfile): Strategy {
-  const t = templateById(p.templateId)!;
-  return {
-    id: p.id,
-    label: p.name,
-    enabledByDefault: true,
-    defaultParams: { ...t.defaultParams },
-    evaluate: (candles: Candle[], ctx: { quote?: Quote | null; params?: Record<string, number> }) =>
-      t.evaluate(candles, { ...ctx, params: { ...t.defaultParams, ...p.params, ...ctx.params } }),
+/** 内置模板播种的默认档案列表 */
+export function seedProfilesFromTemplates(): StrategyProfile[] {
+  return STRATEGY_TEMPLATES.map((t) => createProfile([t.id]));
+}
+
+/* ------------------------------- 信号评估 ------------------------------- */
+
+function evalLeg(leg: StrategyLeg, candles: Candle[]): PartialSignal | null {
+  if (!leg.enabled) return null;
+  const tpl = getTemplate(leg.templateId);
+  if (!tpl) return null;
+  const sig = evaluateStrategy(tpl, candles, factorOverridesFrom(leg.params));
+  if (!sig) return null;
+  return { side: sig.side, reason: `[${legLabel(leg)}] ${sig.reason}`, strength: sig.strength };
+}
+
+export function combineSignals(
+  signals: Array<PartialSignal | null>,
+  weights: number[],
+  mode: CombineMode,
+): PartialSignal | null {
+  const hits = signals
+    .map((s, i) => ({ s, w: Math.max(1, weights[i] ?? 1) }))
+    .filter((x): x is { s: PartialSignal; w: number } => x.s != null);
+  if (hits.length === 0) return null;
+
+  const buy = hits.filter((h) => h.s.side === 'buy');
+  const sell = hits.filter((h) => h.s.side === 'sell');
+  const totalW = hits.reduce((a, h) => a + h.w, 0) || 1;
+
+  const pick = (side: 'buy' | 'sell', pool: typeof hits): PartialSignal | null => {
+    if (pool.length === 0) return null;
+    if (mode === 'and') {
+      if (pool.length !== hits.length) return null;
+      const strength = Math.min(...pool.map((h) => h.s.strength));
+      const reasons = pool.map((h) => h.s.reason).join('；');
+      return { side, strength, reason: `全部满足：${reasons}` };
+    }
+    if (mode === 'or') {
+      const best = pool.reduce((a, b) => (b.s.strength > a.s.strength ? b : a));
+      return { side, strength: best.s.strength, reason: best.s.reason };
+    }
+    const wSum = pool.reduce((a, h) => a + h.w, 0);
+    if (wSum / totalW < 0.5) return null;
+    const avg = pool.reduce((a, h) => a + h.s.strength * h.w, 0) / wSum;
+    const reasons = pool.map((h) => `${h.s.reason}(w=${h.w})`).join('；');
+    return { side, strength: Math.max(1, Math.round(avg)), reason: `加权通过：${reasons}` };
   };
+
+  const buySig = pick('buy', buy);
+  const sellSig = pick('sell', sell);
+  if (buySig && sellSig) return sellSig.strength >= buySig.strength ? sellSig : buySig;
+  return buySig ?? sellSig;
 }
 
-/** 直接按档案参数评估信号内核（供自动交易运行时用，避免额外包装）。 */
-export function evaluateProfile(p: StrategyProfile, candles: Candle[], quote?: Quote | null): PartialSignal | null {
-  const t = templateById(p.templateId);
-  if (!t || candles.length === 0) return null;
-  return t.evaluate(candles, { quote, params: { ...t.defaultParams, ...p.params } });
+export function evaluateProfile(p: StrategyProfile, candles: Candle[], _quote?: Quote | null): PartialSignal | null {
+  if (candles.length === 0 || p.legs.length === 0) return null;
+  const signals = p.legs.map((leg) => evalLeg(leg, candles));
+  const weights = p.legs.map((l) => l.weight);
+  return combineSignals(signals, weights, p.combineMode);
 }
 
-/** 参数编辑器元数据（由 defaultParams key → 中文标签 + 步进范围）。 */
-export const PARAM_SPECS: Record<string, { key: string; label: string; min?: number; max?: number; step?: number }[]> = {
-  // 趋势确认当前无运行时参数（条件阈值写死在 composite.ts 规则里）
-  trend_confirm: [],
-};
+/* -------------------------------- 参数元数据 ------------------------------- */
 
-export function paramSpecsOf(templateId: string): { key: string; label: string; min?: number; max?: number; step?: number }[] {
-  return PARAM_SPECS[templateId] ?? [];
+export interface ParamSpec {
+  key: string;
+  label: string;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+export interface ParamGroup {
+  factorId: string;
+  factorLabel: string;
+  specs: ParamSpec[];
+}
+
+export function paramGroupsOf(templateId: string): ParamGroup[] {
+  const tpl = getTemplate(templateId);
+  if (!tpl) return [];
+  const groups: ParamGroup[] = [];
+  for (const fid of factorsUsedBy(tpl)) {
+    const f = getFactor(fid);
+    if (!f || f.params.length === 0) continue;
+    groups.push({
+      factorId: fid,
+      factorLabel: f.label,
+      specs: f.params.map((p) => ({
+        key: `${fid}.${p.key}`,
+        label: p.label,
+        min: p.min,
+        max: p.max,
+        step: p.step,
+      })),
+    });
+  }
+  return groups;
+}
+
+export function allParamGroupsOf(profile: StrategyProfile): ParamGroup[] {
+  const byFactor = new Map<string, ParamGroup>();
+  for (const leg of profile.legs) {
+    for (const g of paramGroupsOf(leg.templateId)) {
+      if (!byFactor.has(g.factorId)) byFactor.set(g.factorId, g);
+    }
+  }
+  return [...byFactor.values()];
+}
+
+export function paramSpecsOf(templateId: string): ParamSpec[] {
+  return paramGroupsOf(templateId).flatMap((g) =>
+    g.specs.map((s) => ({ ...s, label: `${g.factorLabel} · ${s.label}` })),
+  );
+}
+
+export function allParamSpecsOf(profile: StrategyProfile): ParamSpec[] {
+  return allParamGroupsOf(profile).flatMap((g) =>
+    g.specs.map((s) => ({ ...s, label: `${g.factorLabel} · ${s.label}` })),
+  );
+}
+
+export function factorOverridesFrom(params: Record<string, number>): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    const i = k.indexOf('.');
+    if (i <= 0) continue;
+    const fid = k.slice(0, i);
+    const pk = k.slice(i + 1);
+    if (!out[fid]) out[fid] = {};
+    out[fid][pk] = v;
+  }
+  return out;
 }
 
 /* --------------------------------- 规则判断 -------------------------------- */
 
-/** 当前分钟是否落在某交易时段（any=只要是交易时段）。非交易时间一律 false。 */
 export function inTradeSession(session: TradeSession, d: Date = new Date()): boolean {
   const { day, hour, minute } = chinaParts(d);
   if (day === 0 || day === 6) return false;
@@ -175,7 +303,6 @@ export function inTradeSession(session: TradeSession, d: Date = new Date()): boo
 
 export type ExitHit = { kind: 'stop' | 'profit' | 'trail'; reason: string } | null;
 
-/** 检查固定止盈止损（基于成本价与最新价）。 */
 export function checkExitRules(cost: number, last: number, exit: ExitRules): ExitHit {
   if (cost <= 0 || last <= 0) return null;
   if (exit.stopLossPct > 0 && last <= cost * (1 - exit.stopLossPct / 100)) {
@@ -187,16 +314,31 @@ export function checkExitRules(cost: number, last: number, exit: ExitRules): Exi
   return null;
 }
 
-/** 检查移动止损（基于开仓后的最高价）。 */
 export function checkTrailingStop(peak: number, last: number, pct: number): boolean {
   if (pct <= 0 || peak <= 0 || last <= 0) return false;
   return last <= peak * (1 - pct / 100);
 }
 
-/** 简单选股过滤（基于最新行情）。 */
 export function passesSelection(sel: SelectionRules, q: Quote | null): boolean {
   if (!q || q.last <= 0) return false;
   if (sel.priceMax > 0 && q.last > sel.priceMax) return false;
   if (sel.minTurnoverWan > 0 && q.amount / 1e4 < sel.minTurnoverWan) return false;
   return true;
+}
+
+/* ------------------------------ 回测适配（非桥） ------------------------------ */
+
+/** 回测/扫描只需要 evaluate 函数，不必再造旧 Strategy 类型 */
+export type ProfileEvaluator = (candles: Candle[], quote?: Quote | null) => PartialSignal | null;
+
+export function profileEvaluator(p: StrategyProfile): ProfileEvaluator {
+  return (candles, quote) => evaluateProfile(p, candles, quote);
+}
+
+/** 注入扁平参数覆盖后的档案（参数扫描用） */
+export function profileWithParams(p: StrategyProfile, params: Record<string, number>): StrategyProfile {
+  return {
+    ...p,
+    legs: p.legs.map((leg) => ({ ...leg, params: { ...leg.params, ...params } })),
+  };
 }

@@ -126,7 +126,7 @@ export class ApiStabilityStats {
   }
 
   /** 一次尝试开始（计数 + 返回上下文供结束时结算） */
-  begin(sourceId: SourceId, method: MethodKey): { t0: number } {
+  begin(sourceId: SourceId, _method: MethodKey): { t0: number } {
     this.registerSource(sourceId, sourceId);
     const s = this.stats.get(sourceId)!;
     s.attempts += 1;

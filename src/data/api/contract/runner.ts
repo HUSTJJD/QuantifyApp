@@ -7,8 +7,8 @@
  *  2. runSmoke：对「期望支持」且有夹具的方法，真实调用并用 catalog 的结果契约断言校验。
  *     调用入口可注入（Jest 注入 mock 后端，UI 注入 marketData.probeSource），两侧共用同一断言。
  */
-import type { DataSourceMethod, MarketDataSource } from '@/api';
-import { DataSourceError } from '@/api/MarketDataSource';
+import type { DataSourceMethod, MarketDataSource } from '@/data/api';
+import { DataSourceError } from '@/data/api/MarketDataSource';
 import { ALL_METHODS, METHOD_CATALOG, type MethodCatalogEntry } from './catalog';
 import { expectationOf } from './expectations';
 

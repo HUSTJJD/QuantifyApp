@@ -11,8 +11,8 @@
  * 数据路径全部走 MarketDataClient 统一契约（多源兜底），上层不感知 fuyao/stock-sdk。
  */
 import { screen } from 'stock-sdk';
-import { marketData } from '@/api';
-import type { FundsFlowingItem, FundFlowPeriod, StockChangeType, Symbol } from '@/api';
+import { marketData } from '@/data/api';
+import type { FundsFlowingItem, FundFlowPeriod, StockChangeType, Symbol } from '@/data/api';
 
 export interface RemoteScreenCriteria {
   /** 主力净流入下限（元，>=）；负值表示要求净流出 */

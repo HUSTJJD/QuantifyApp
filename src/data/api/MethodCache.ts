@@ -18,11 +18,12 @@
  * 读穿：命中未过期直接返回；未命中/过期 → fetch 并异步回写。
  * 写库失败不拖垮主请求；空结果默认不写。
  */
-import { quantStore } from '@/db/QuantStore';
-import { domainCache } from '@/db/DomainCache';
+import { quantStore } from '@/data/db/QuantStore';
+import { domainCache } from '@/data/db/DomainCache';
 import { stableStringify } from './coalesce';
+import { isAnyMarketTradingNow, isTradingNow } from '@/utils/trading';
 import type { DataSourceMethod, MethodArgs, MethodResult } from './methods';
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import { toFullCode } from '@/domain/symbol';
 
 function n(v: unknown): number | null {
@@ -68,7 +69,7 @@ export const METHOD_CACHE_POLICIES: Partial<Record<DataSourceMethod, MethodCache
   getDragonTigerStockStats: { ttlMs: 30 * 60_000, store: 'domain' },
 
   // ---- v6 领域表：财务 / 估值 / 分红 ----
-  getValuations: { ttlMs: 60_000, store: 'domain' },
+  getValuations: { ttlMs: 30 * 60_000, store: 'domain' },
   getFinancials: { ttlMs: 12 * 3600_000, store: 'domain' },
   getIncomeStatements: { ttlMs: 12 * 3600_000, store: 'domain' },
   getBalanceSheets: { ttlMs: 12 * 3600_000, store: 'domain' },
@@ -147,6 +148,52 @@ export function methodCacheKey(method: DataSourceMethod, args: unknown[]): strin
   return `${method}.${stableStringify(args)}`;
 }
 
+/**
+ * 解析实际 TTL：盘中/盘后对实时性类方法区分策略。
+ * 交易时段保持短 TTL；非交易时段拉长，减少无谓请求（价格已定格）。
+ */
+function resolveTtlMs(method: DataSourceMethod, baseTtl: number, args?: unknown[]): number {
+  // 行情类：任一相关市场（A/HK/US）盘中保持短 TTL
+  const quoteLike =
+    method === 'getQuotes' ||
+    method === 'getIndexQuotes' ||
+    method === 'getFundMarketSnapshot' ||
+    method === 'getOptionQuotes' ||
+    method === 'getOptionCffexQuotes' ||
+    method === 'getFuturesGlobalSpot' ||
+    method === 'getLargeOrderRatios' ||
+    method === 'getOrderBook' ||
+    method === 'getIntraday';
+  if (quoteLike) {
+    const raw = args?.[0];
+    const symbols = Array.isArray(raw)
+      ? (raw as Array<{ exchange?: string }>).filter((s) => s && typeof s === 'object')
+      : raw && typeof raw === 'object' && 'exchange' in (raw as object)
+        ? [raw as { exchange?: string }]
+        : [];
+    const trading =
+      symbols.length > 0 ? isAnyMarketTradingNow(symbols as Array<{ exchange: string }>) : isTradingNow();
+    if (trading) return baseTtl;
+    return Math.max(baseTtl, 10 * 60_000);
+  }
+  if (isTradingNow()) return baseTtl;
+  switch (method) {
+    case 'getStockFundsFlowing':
+    case 'getStockIndustryFundsFlowing':
+    case 'getLimitUpPool':
+    case 'getLimitDownPool':
+    case 'getLimitBreakPool':
+    case 'getMainForce':
+    case 'getStockIndustryBoard':
+    case 'getConceptBoards':
+    case 'getStockHotIndustry':
+      // 盘后榜单/资金流不再变：30 分钟
+      return Math.max(baseTtl, 30 * 60_000);
+    default:
+      return baseTtl;
+  }
+}
+
 function isEmptyResult(v: unknown): boolean {
   if (v == null) return true;
   if (Array.isArray(v)) return v.length === 0;
@@ -183,7 +230,13 @@ async function readDomain(
           : [];
       if (symbols.length === 0) return null;
       const map = await dc.getQuotes(symbols, now, ttlMs);
-      const out = symbols.map((s) => map.get(toFullCode(s))).filter(Boolean) as Quote[];
+      // 必须全部命中才视为缓存有效：部分命中会把缺的标的永远挡在上游之外
+      const out: Quote[] = [];
+      for (const sym of symbols) {
+        const q = map.get(toFullCode(sym));
+        if (!q) return null;
+        out.push(q);
+      }
       return out.length > 0 ? out : null;
     }
     case 'getTradingDays': {
@@ -381,20 +434,37 @@ async function readDomain(
       const tag = (args[0] as string | undefined) ?? 'industry';
       const rows = await domainCache().listIndexCatalog(tag, now);
       if (rows.length === 0) return null;
-      return rows.map((r) => ({
-        symbol: { code: s(r.code), exchange: 'TI' as Symbol['exchange'] },
-        name: s(r.name),
-      }));
+      return rows.map((r) => {
+        const code = s(r.code);
+        // BKxxxx = 东财板块 → EM；88xxxx = 同花顺板块指数 → TI
+        const exchange = /^BK\d+$/i.test(code)
+          ? ('EM' as Symbol['exchange'])
+          : ('TI' as Symbol['exchange']);
+        return {
+          symbol: { code, exchange },
+          name: s(r.name),
+        };
+      });
     }
     case 'getIndexConstituents': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
       const rows = await domainCache().listIndexConstituents(toFullCode(sym), now);
       if (rows.length === 0) return null;
-      return rows.map((r) => ({
-        symbol: { code: s(r.code), exchange: 'SH' as Symbol['exchange'] },
-        name: s(r.name),
-      }));
+      return rows.map((r) => {
+        const code = s(r.code);
+        // 按代码推断交易所：000/001/002/003→SZ，6→SH，不可一律 SH
+        // （硬编码 SH 会把 000088.SZ 标成 SH，isIndexSymbol 误判为上证指数）
+        const exchange = /^6/.test(code)
+          ? ('SH' as Symbol['exchange'])
+          : /^(000|001|002|003|300)/.test(code)
+            ? ('SZ' as Symbol['exchange'])
+            : ('SH' as Symbol['exchange']);
+        return {
+          symbol: { code, exchange },
+          name: s(r.name),
+        };
+      });
     }
     case 'getHotStockList':
     case 'getSkyrocketList': {
@@ -2083,11 +2153,12 @@ export async function readThroughCache<M extends DataSourceMethod>(
     return fetch();
   }
   const now = Date.now();
+  const ttlMs = resolveTtlMs(method, policy.ttlMs, args as unknown[]);
 
   // 1) 领域表读
   if (policy.store === 'domain') {
     try {
-      const hit = await readDomain(method, args as unknown[], now, policy.ttlMs);
+      const hit = await readDomain(method, args as unknown[], now, ttlMs);
       if (hit !== null && hit !== undefined) {
         if (!isEmptyResult(hit) || policy.cacheEmpty) {
           return hit as MethodResult<M>;
@@ -2136,16 +2207,16 @@ export async function readThroughCache<M extends DataSourceMethod>(
     // 领域方法：非空走领域表；空结果且 cacheEmpty 写 method_cache 哨兵
     const useDomain = policy.store === 'domain' && !isEmptyResult(result);
     if (useDomain) {
-      void writeDomain(method, args as unknown[], result, policy.ttlMs, now).catch(() => {});
+      writeDomain(method, args as unknown[], result, ttlMs, now).catch(() => {});
     } else {
-      void quantStore()
+      quantStore()
         .putMethodCache({
           cacheKey: key,
           method,
           argsHash: stableStringify(args as unknown[]).slice(0, 256),
           payload: JSON.stringify(result ?? null),
           updatedAt: now,
-          expiresAt: now + policy.ttlMs,
+          expiresAt: now + ttlMs,
         })
         .catch(() => {});
     }

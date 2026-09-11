@@ -1,97 +1,71 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# QuantifyApp · 锐见 SharpView
 
-# Getting Started
+面向 A 股主战场的量化洞察与行情终端（Expo SDK 57 / RN 0.86）。
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## 快速开始
 
-## Step 1: Start Metro
-
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+```bash
+npm install
+npx expo start
+# 本地原生调试（CNG，按需生成）
+npx expo prebuild
+npm run ios   # 或 npm run android
 ```
 
-## Step 2: Build and run your app
+## 工程结构
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```
+src/
+  domain/          # 纯领域类型与工具（SignalSide/TradeSignal/AlertEvent/symbol）
+  data/            # 行情 API 多源路由、SQLite、缓存、同步、仓储
+  quant/
+    core/          # 多因子框架：factors / templates / engine
+    profile.ts     # 策略档案模型（legs + combineMode）
+    profileStore.ts
+    signals.ts     # 档案驱动信号
+    signalStore.ts
+    signalAlerts.ts
+    runtime.ts     # 常驻运行时：信号重算 + 自动交易
+    backtest/      # （模块文件）回测、优化、walk-forward
+  simulation/      # 模拟盘账户与撮合
+  features/        # UI 按业务域分包
+  components/      # ui + charts
+  navigation/ theme/ hooks/ utils/ polyfills/
+tests/             # 统一测试目录（data / quant / ui / domain / integration）
 ```
 
-### iOS
+## 模型约定
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+- **策略档案** = `legs: StrategyLeg[]` + `combineMode`（and/or/vote）+ 选股 + 风控。
+- `templateId` **只属于腿**，档案上没有「信号内核」绑定。
+- 信号与自动交易都以档案为唯一驱动：`src/quant/runtime.ts`。
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+## 数据源与子模块
 
-```sh
-bundle install
+- `stock-sdk`、`FuyaoNPM` 为 git 子模块（`file:` 依赖），克隆请 `--recurse-submodules`。
+- postinstall 会自动构建本地 SDK 的 `dist/`。
+- 未使用的研究仓库（dukascopy-node / myhhub-stock）仍可作为子模块保留，App 代码不再直接依赖其源码树。
+
+## 原生构建（CNG）
+
+仓库**不**检入 `android/` `ios/`。需要原生调试时：
+
+```bash
+npx expo prebuild --clean
 ```
 
-Then, and every time you update your native dependencies, run:
+原生模块（op-sqlite / Skia / vector-icons 等）由 Expo autolinking 接入。
 
-```sh
-bundle exec pod install
-```
+## 脚本
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+| 命令 | 说明 |
+|------|------|
+| `npm start` | Expo dev server |
+| `npm run typecheck` | `tsc -p tsconfig.app.json --noEmit` |
+| `npm test` | Jest（roots: src / tests） |
+| `npm run lint` | expo lint |
+| `npm run validate` | typecheck + test |
 
-```sh
-# Using npm
-npm run ios
+## 设计规范
 
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+视觉与信息架构见 [DESIGN.md](./DESIGN.md)（锐见 · 终端密度）。

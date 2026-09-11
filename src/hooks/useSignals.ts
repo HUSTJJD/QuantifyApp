@@ -3,9 +3,9 @@
  * 配合行情推送，信号会随交易时段自动更新；这里做快照订阅，刷新时重读。
  */
 import { useEffect, useState, useCallback } from 'react';
-import type { TradeSignal } from '@/quant/signals';
-import { getAll } from '@/quant/SignalStore';
-import { quoteFeed } from '@/services/QuoteFeed';
+import type { TradeSignal } from '@/domain';
+import { getAll } from '@/quant/signalStore';
+import { quoteFeed } from '@/data/QuoteFeed';
 
 export function useSignals(): {
   signals: TradeSignal[];

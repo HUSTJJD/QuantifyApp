@@ -1,0 +1,21 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["jest"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@opptrix/fuyao": ["./FuyaoNPM/src/index.ts"]
+    }
+  },
+  "include": [
+    "App.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ],
+  "exclude": ["**/node_modules", "stock-sdk", "FuyaoNPM", "dukascopy-node", "myhhub-stock", ".expo"]
+}

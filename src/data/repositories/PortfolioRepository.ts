@@ -7,11 +7,11 @@
  * 持久化由 src/db/UserStore 承接：真机走本地 SQLite 库，
  * jest / 未接入原生环境自动回落 AsyncStorage（键名不变，平滑升级）。
  */
-import { userStore } from '@/db/UserStore';
-import type { Holding, AssetSnapshot } from '@/db/UserStore';
+import { userStore } from '@/data/db/UserStore';
+import type { Holding, AssetSnapshot } from '@/data/db/UserStore';
 
 export type { Holding, AssetSnapshot };
-export type { Symbol } from '@/api';
+export type { Symbol } from '@/data/api';
 
 export async function getHoldings(): Promise<Holding[]> {
   return userStore.getHoldings();

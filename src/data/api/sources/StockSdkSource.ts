@@ -154,6 +154,7 @@ import type {
 } from '../types';
 import { register } from '../DataSourceRegistry';
 import { cleanCandles } from '../candleValidity';
+import { isIndexSymbol } from '@/domain/symbol';
 
 const SOURCE_ID = 'stock-sdk';
 
@@ -184,6 +185,13 @@ function numOrNull(v: unknown): number | null {
 function exchangeOf(market: string, code: string): Symbol['exchange'] {
   if (market === 'HK') return 'HK';
   if (market === 'US') return 'US';
+  // 已带 sh/sz/hk 前缀
+  const c = String(code ?? '').toLowerCase();
+  if (c.startsWith('hk')) return 'HK';
+  if (c.startsWith('us')) return 'US';
+  if (c.startsWith('sh')) return 'SH';
+  if (c.startsWith('sz')) return 'SZ';
+  if (c.startsWith('bj')) return 'BJ';
   // A 股按代码首位推断
   if (code.startsWith('6')) return 'SH';
   if (code.startsWith('0') || code.startsWith('3')) return 'SZ';
@@ -319,12 +327,23 @@ export class StockSdkSource extends BaseMarketDataSource {
     }
     if (method === 'getIndexQuotes') {
       const syms = a[0] as Symbol[] | undefined;
-      // 同花顺板块指数（.TI，881xxx 等）不属于本源覆盖体系（空数组放行，与方法体守卫一致）
-      if (syms && syms.length > 0 && syms.every((s) => s.exchange === 'TI')) return false;
+      // 本源只覆盖东财 BK/EM 板块；真实股指与同花顺 TI 指数交给 hithsa/fuyao
+      if (!syms || syms.length === 0) return false;
+      const hasBoard = syms.some((s) => s.exchange === 'EM' || /^BK\d+$/i.test(s.code));
+      return hasBoard;
     }
     if (method === 'getIndexKline') {
       const p = a[0] as KlineParams | undefined;
-      if (!p || p.symbol.exchange === 'TI') return false;
+      if (!p) return false;
+      // 东财板块（EM/BK）走 board.*，本源覆盖
+      if (p.symbol.exchange === 'EM' || /^BK\d+$/i.test(p.symbol.code)) return true;
+      // TI 同花顺板块指数不走本源
+      if (p.symbol.exchange === 'TI') return false;
+      // 真实股指（000xxx.SH / 399xxx.SZ）交给 hithsa/fuyao
+      if (/^000\d{3}$/.test(p.symbol.code) || /^399\d{3}$/.test(p.symbol.code)) {
+        return false;
+      }
+      return true;
     }
     // 通用部分委托基类引擎（本源无参数级 spec = 不限制）
     return super.supports(method, args);
@@ -336,6 +355,23 @@ export class StockSdkSource extends BaseMarketDataSource {
       if (e instanceof DataSourceError) throw e;
       throw new DataSourceError(msg, SOURCE_ID, undefined, e);
     });
+  }
+
+  /**
+   * board.industry.list 内存缓存：listIndices / getIndexQuotes / getStockIndustryBoard
+   * 共用一次上游请求。盘中 30s、盘后 5min。
+   */
+  #boardListCache: { ts: number; rows: any[] } | null = null;
+
+  private async getBoardIndustryList(): Promise<any[]> {
+    const now = Date.now();
+    const ttl = 30_000; // 盘中短缓存即可；盘后首次拉到后也只重复一次
+    if (this.#boardListCache && now - this.#boardListCache.ts < ttl) {
+      return this.#boardListCache.rows;
+    }
+    const rows: any[] = await this.guard(this.sdk.board.industry.list(), '板块列表失败');
+    this.#boardListCache = { ts: now, rows: rows ?? [] };
+    return this.#boardListCache.rows;
   }
 
   // ============================================================
@@ -447,14 +483,20 @@ export class StockSdkSource extends BaseMarketDataSource {
    * 如实返回空盘口（绝不伪造数据）。ETF 场内基金 FundQuote 也无盘口。
    */
   async getOrderBook(symbol: Symbol): Promise<OrderBook> {
+    // 港股/美股/场内基金无五档：空盘口
     if (symbol.exchange === 'HK' || symbol.exchange === 'US' || symbol.exchange === 'OF') {
       return { symbol, bids: [], asks: [], updatedAt: Date.now() };
     }
-    const raw: any[] = await this.guard(this.sdk.quotes.cn([toSdkCode(symbol)]), '盘口失败');
-    const r: any = (raw ?? [])[0] ?? {};
-    const bids = (r.bid ?? []).map((b: any) => ({ price: num(b.price), volume: num(b.volume) }));
-    const asks = (r.ask ?? []).map((a: any) => ({ price: num(a.price), volume: num(a.volume) }));
-    return { symbol, bids, asks, updatedAt: numOrNull(r.timestamp) ?? Date.now() };
+    try {
+      const raw: any[] = await this.guard(this.sdk.quotes.cn([toSdkCode(symbol)]), '盘口失败');
+      const r: any = (raw ?? [])[0] ?? {};
+      const bids = (r.bid ?? []).map((b: any) => ({ price: num(b.price), volume: num(b.volume) }));
+      const asks = (r.ask ?? []).map((a: any) => ({ price: num(a.price), volume: num(a.volume) }));
+      return { symbol, bids, asks, updatedAt: numOrNull(r.timestamp) ?? Date.now() };
+    } catch {
+      // 上游盘口端点不稳定/无数据：返回空盘口，避免个股详情刷红屏
+      return { symbol, bids: [], asks: [], updatedAt: Date.now() };
+    }
   }
 
   /**
@@ -494,7 +536,7 @@ export class StockSdkSource extends BaseMarketDataSource {
             : 'cnMinute';
       const raw: any[] = await this.guard(
         this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
-        '分钟K线失败',
+        `分钟K线失败(${params.symbol.exchange}.${code} ${params.period})`,
       );
       return cleanCandles(mapMinuteKline(raw ?? []));
     }
@@ -505,21 +547,61 @@ export class StockSdkSource extends BaseMarketDataSource {
       month: 'monthly',
     };
     const ns = params.symbol.exchange === 'HK' ? 'hk' : params.symbol.exchange === 'US' ? 'us' : 'cn';
-    const raw: any[] = await this.guard(
-      this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
-      'K线失败',
-    );
-    return cleanCandles(
-      (raw ?? []).map((it: any) => ({
-        datetime: it.date,
-        open: num(it.open),
-        high: num(it.high),
-        low: num(it.low),
-        close: num(it.close),
-        volume: num(it.volume),
-        amount: it.amount != null ? num(it.amount) : undefined,
-      })),
-    );
+    // 港股：kline.hk 对空 adjust 敏感，默认 qfq；失败一律降级空数组
+    if (params.symbol.exchange === 'HK') {
+      const hkAdjust: '' | 'qfq' | 'hfq' =
+        params.adjust === 'backward' ? 'hfq' : params.adjust === 'forward' ? 'qfq' : 'qfq';
+      try {
+        const raw = await this.sdk.kline.hk(code, {
+          period: periodMap[params.period],
+          adjust: hkAdjust,
+          ...(params.count ? { limit: params.count } : {}),
+        });
+        return cleanCandles(
+          (raw ?? []).map((it: any) => ({
+            datetime: it.date,
+            open: num(it.open),
+            high: num(it.high),
+            low: num(it.low),
+            close: num(it.close),
+            volume: num(it.volume),
+            amount: it.amount != null ? num(it.amount) : undefined,
+          })),
+        );
+      } catch {
+        return [];
+      }
+    }
+    try {
+      const raw: any[] = await this.guard(
+        this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
+        `K线失败(${params.symbol.exchange}.${code} ${params.period})`,
+      );
+      return cleanCandles(
+        (raw ?? []).map((it: any) => ({
+          datetime: it.date,
+          open: num(it.open),
+          high: num(it.high),
+          low: num(it.low),
+          close: num(it.close),
+          volume: num(it.volume),
+          amount: it.amount != null ? num(it.amount) : undefined,
+        })),
+      );
+    } catch (e) {
+      // 北交所 / 场内基金(ETF/LOF) / 期权 / 债券等在 cn 端点常无数据：降级为空
+      if (
+        params.symbol.exchange === 'BJ' ||
+        params.symbol.exchange === 'OF' ||
+        !/^\d+$/.test(code) ||
+        /^1[012]\d{4,8}$/.test(code) ||
+        /^5\d{5}$/.test(code) ||
+        /^(15|16|18)\d{4}$/.test(code)
+      ) {
+        return [];
+      }
+      throw e;
+    }
   }
 
   /**
@@ -579,11 +661,20 @@ export class StockSdkSource extends BaseMarketDataSource {
     return [];
   }
 
-  /** 复权事件：委托 SDK reference.dividendDetail（分红 / 送转明细）。指数/板块无复权 → 空。 */
+  /** 复权事件：委托 SDK reference.dividendDetail（分红 / 送转明细）。指数/板块/基金/期权无复权 → 空。 */
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
-    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+    if (
+      isIndexSymbol(symbol) ||
+      symbol.exchange === 'HK' ||
+      symbol.exchange === 'US' ||
+      symbol.exchange === 'OF' ||
+      !/^\d+$/.test(symbol.code)
+    ) {
       return [];
     }
+    // 请求失败**不再吞成空数组**：guard 会归一化为 DataSourceError（code=undefined → retryable），
+    // 交由 SourceRouter 判定——若其它源如实返回了空，Router 会降级 warn + 空；真故障才报错。
+    // 如实的空结果（上游正常返回 []，如新股无分红史）照常返回 []。
     const raw: any[] = await this.guard(
       this.sdk.reference.dividendDetail(toSdkCode(symbol)),
       '复权因子失败',
@@ -642,11 +733,16 @@ export class StockSdkSource extends BaseMarketDataSource {
   // ---------- 指数 / 板块 ----------
   /** 板块 / 行业列表（行业板块近似为「指数」候选） */
   async listIndices(_tag?: IndexTag): Promise<IndexInfo[]> {
-    const raw: any[] = await this.guard(this.sdk.board.industry.list(), '板块列表失败');
-    return (raw ?? []).map((r: any) => ({
-      symbol: { code: String(r.code ?? ''), exchange: 'SH', name: r.name },
-      name: String(r.name ?? ''),
-    }));
+    const raw: any[] = await this.getBoardIndustryList();
+    return (raw ?? []).map((r: any) => {
+      const code = String(r.code ?? '');
+      // BKxxxx = 东财板块（EM），不要标成 SH/TI，否则 getIndexQuotes 会走错源
+      const exchange = /^BK\d+$/i.test(code) ? ('EM' as const) : ('SH' as const);
+      return {
+        symbol: { code, exchange, name: r.name },
+        name: String(r.name ?? ''),
+      };
+    });
   }
 
   /**
@@ -679,34 +775,71 @@ export class StockSdkSource extends BaseMarketDataSource {
         e,
       );
     }
-    return (raw ?? []).map((r: any) => ({
-      symbol: { code: String(r.code ?? ''), exchange: exchangeOf('CN', r.code ?? ''), name: r.name },
-      name: String(r.name ?? ''),
-    }));
+    return (raw ?? [])
+      .map((r: any) => {
+        const rCode = String(r.code ?? '');
+        return {
+          symbol: { code: rCode, exchange: exchangeOf('CN', rCode), name: r.name },
+          name: String(r.name ?? ''),
+        };
+      })
+      .filter((it) => {
+        // 板块成分里可能混入 B 股（200/900）等，A 股行情接口不认，过滤掉避免拖垮整批 getQuotes
+        return /^(60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{4}|4\d{4}|92\d{4})$/.test(it.symbol.code);
+      });
   }
 
   /** 指数 / 板块行情：批量行情接口可返回指数（含 sh000001 等） */
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
-    // 同花顺板块指数（.TI，881xxx 等）不属于 stock-sdk 覆盖体系 → 直接 3004，
-    // 避免对能力外代码发起请求并吃网络错误
-    if (symbols.every((s) => s.exchange === 'TI')) {
+    // 同花顺板块指数（88xxxx.TI）与真实股指（000001.SH 等）不走本源：
+    // batch.byCodes 对股指返回空/失败，应交给 hithsa/fuyao index API
+    const boards = symbols.filter((s) => s.exchange === 'EM' || /^BK\d+$/i.test(s.code));
+    if (boards.length === 0) {
       return unsupported('getIndexQuotes');
     }
-    const raw: any[] = await this.guard(
-      this.sdk.batch.byCodes(symbols.map(toSdkCode)),
-      '指数行情失败',
-    );
-    const byCode = new Map<string, any>((raw ?? []).map((r) => [r.code ?? '', r]));
-    return symbols.map((s) => mapQuote(s, byCode.get(toSdkCode(s)) ?? {}));
+
+    const out: Quote[] = [];
+    const list: any[] = await this.getBoardIndustryList();
+    const byCode = new Map<string, any>((list ?? []).map((b) => [String(b?.code ?? ''), b]));
+    for (const s of boards) {
+      const b = byCode.get(s.code);
+      if (!b) continue;
+      const price = numOrNull(b.price) ?? 0;
+      const pct = numOrNull(b.changePercent);
+      out.push({
+        symbol: { ...s, name: b.name ? String(b.name) : s.name },
+        last: price,
+        prevClose: price && pct != null ? price / (1 + pct / 100) : 0,
+        open: price,
+        high: price,
+        low: price,
+        volume: numOrNull(b.volume) ?? 0,
+        // 板块无成交额时用总市值代理（与 treemap 权重口径一致）
+        amount: numOrNull(b.totalMarketCap) ?? numOrNull(b.amount) ?? 0,
+        changePct: pct ?? undefined,
+        updatedAt: Date.now(),
+      });
+    }
+    return out;
   }
 
   async getIndexKline(params: KlineParams): Promise<Candle[]> {
-    // 同花顺板块指数（.TI）不属于 stock-sdk 覆盖体系 → 直接 3004
+    const code = params.symbol.code;
+    // 东财板块（EM / BKxxxx）：走 board.industry/concept.kline，不能当个股 kline.cn
+    if (params.symbol.exchange === 'EM' || /^BK\d+$/i.test(code)) {
+      return this.boardKlineCN(code, params);
+    }
+    // 同花顺板块指数（.TI，88xxxx）不属于 stock-sdk 覆盖体系 → 3004
     if (params.symbol.exchange === 'TI') {
       return unsupported('getIndexKline');
     }
-    // 指数 K 线复用 A 股日 K（行业板块同样走 cn kline）
+    // 真实股指：batch/kline 对 000001 等支持不稳定，交给 hithsa/fuyao
+    if (params.symbol.exchange === 'SH' || params.symbol.exchange === 'SZ') {
+      if (/^000/.test(code) || /^399/.test(code)) {
+        return unsupported('getIndexKline');
+      }
+    }
     return this.getKline({ ...params, symbol: { ...params.symbol, exchange: 'SH' } });
   }
 
@@ -835,7 +968,17 @@ export class StockSdkSource extends BaseMarketDataSource {
       sealMoney: numOrNull(it.boardAmount) ?? 0,
       maxSealMoney: numOrNull(it.boardAmount) ?? 0,
     }));
-    return { items: list };
+    const total = list.length;
+    const size = opts?.size ?? Math.max(total, 1);
+    return {
+      items: list,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size,
+        pages: Math.max(1, Math.ceil(total / size)),
+      },
+    };
   }
   /**
    * 连板天梯：stock-sdk 无独立天梯端点，用涨停池按连板数合成单日矩阵。
@@ -1026,10 +1169,16 @@ export class StockSdkSource extends BaseMarketDataSource {
 
   /** 个股资金流排行 */
   async getStockFundsFlowing(params?: FundsFlowingParams): Promise<FundsFlowingItem[]> {
-    const raw: any = await this.guard(
-      this.sdk.fundFlow.rank({ indicator: params?.period ?? 'today' }),
-      '个股资金流排行失败',
-    );
+    let raw: any;
+    try {
+      raw = await this.guard(
+        this.sdk.fundFlow.rank({ indicator: params?.period ?? 'today' }),
+        '个股资金流排行失败',
+      );
+    } catch {
+      // 行情源偶发不可用：首页卡片静默降级，不刷 LogBox
+      return [];
+    }
     const rows: any[] = Array.isArray(raw) ? raw : raw?.item ?? [];
     const limit = params?.limit;
     const target = typeof limit === 'number' && limit > 0 ? rows.slice(0, limit) : rows;
@@ -1045,13 +1194,18 @@ export class StockSdkSource extends BaseMarketDataSource {
 
   /** 板块资金流排行（行业/概念/地域） */
   async getStockIndustryFundsFlowing(params?: IndustryFundsFlowingParams): Promise<IndustryFundsFlowingItem[]> {
-    const raw: any = await this.guard(
-      this.sdk.fundFlow.sectorRank({
-        indicator: params?.period ?? 'today',
-        sectorType: params?.sectorType,
-      }),
-      '板块资金流排行失败',
-    );
+    let raw: any;
+    try {
+      raw = await this.guard(
+        this.sdk.fundFlow.sectorRank({
+          indicator: params?.period ?? 'today',
+          sectorType: params?.sectorType,
+        }),
+        '板块资金流排行失败',
+      );
+    } catch {
+      return [];
+    }
     const rows: any[] = Array.isArray(raw) ? raw : raw?.item ?? [];
     const limit = params?.limit;
     const target = typeof limit === 'number' && limit > 0 ? rows.slice(0, limit) : rows;
@@ -2235,7 +2389,7 @@ export class StockSdkSource extends BaseMarketDataSource {
    * 只声明了本方法的源没有板块能力时抛 3004。
    */
   async getStockIndustryBoard(params?: IndustryBoardParams): Promise<IndustryBoardItem[]> {
-    const list: any[] = await this.guard(this.sdk.board.industry.list(), '行业板块列表失败');
+    const list: any[] = await this.getBoardIndustryList();
     const rows = list ?? [];
     const limit = params?.limit;
     const target = typeof limit === 'number' && limit > 0 ? rows.slice(0, limit) : rows;
@@ -2335,8 +2489,13 @@ function fmtDate(ms: number): string {
 function mapQuote(symbol: Symbol, r: any): Quote {
   // HK/US 上游字段名可能为 price 或 last；绝不把 prevClose 当成 last
   const lastRaw = r.price ?? r.last;
+  // 上游带名称时写入 symbol（自选/详情展示用）
+  const upstreamName = String(r.name ?? r.stockName ?? r.stock_name ?? '').trim();
+  const nextSymbol: Symbol = upstreamName
+    ? { ...symbol, name: upstreamName }
+    : symbol;
   return {
-    symbol,
+    symbol: nextSymbol,
     last: num(lastRaw),
     prevClose: num(r.prevClose),
     open: num(r.open),
@@ -2352,8 +2511,12 @@ function mapQuote(symbol: Symbol, r: any): Quote {
 }
 
 function mapFundQuote(symbol: Symbol, r: any): Quote {
+  const upstreamName = String(r.name ?? r.fundName ?? '').trim();
+  const nextSymbol: Symbol = upstreamName
+    ? { ...symbol, name: upstreamName }
+    : symbol;
   return {
-    symbol,
+    symbol: nextSymbol,
     last: num(r.nav),
     prevClose: num(r.accNav),
     open: 0,
@@ -2380,13 +2543,30 @@ function mapMinuteKline(raw: any[]): Candle[] {
 }
 
 function mapInstrument(r: any): Instrument {
-  const market: Instrument['market'] =
-    r.market === 'HK' ? 'HK' : r.market === 'US' ? 'US' : 'A';
-  const code = String(r.code ?? '');
+  const rawCode = String(r.code ?? '').trim();
+  // stock-sdk 搜索结果可能带 sh/sz/hk 前缀（sz300750 / hk03986），
+  // 必须拆前缀定交易所，否则会落到 exchangeOf 的默认 SH。
+  let code = rawCode;
+  let exchange: Symbol['exchange'] | null = null;
+  const pref = rawCode.match(/^(sh|sz|bj|hk|us)(?=\d|[a-z])/i);
+  if (pref) {
+    const p = pref[1]!.toLowerCase();
+    code = rawCode.slice(pref[0].length);
+    exchange =
+      p === 'sh' ? 'SH' : p === 'sz' ? 'SZ' : p === 'bj' ? 'BJ' : p === 'hk' ? 'HK' : 'US';
+  }
+  // 市场字段优先于纯数字推断（港股 00700 / 03986 等）
+  const marketHint = String(r.market ?? '').toUpperCase();
+  if (!exchange) {
+    if (marketHint === 'HK') exchange = 'HK';
+    else if (marketHint === 'US') exchange = 'US';
+    else exchange = exchangeOf('CN', code);
+  }
+  const name = String(r.name ?? '');
   return {
-    symbol: { code, exchange: exchangeOf(r.market ?? 'CN', code), name: String(r.name ?? '') },
-    name: String(r.name ?? ''),
-    market,
+    symbol: { code, exchange, name },
+    name,
+    market: exchange === 'HK' ? 'HK' : exchange === 'US' ? 'US' : 'A',
     assetType: (r.type as Instrument['assetType']) ?? 'a-share',
     currency: r.currency,
   };

@@ -9,8 +9,8 @@
  * 让 MarketDataClient 零改动。内部改为按 symbol+period 行级 upsert，
  * 同屏重复读取命中内存热索引，避免反复解析大数组。
  */
-import type { Candle, KlinePeriod, Symbol } from '@/api';
-import { database } from '@/db';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
+import { database } from '@/data/db';
 
 export interface KlineEntry {
   candles: Candle[];

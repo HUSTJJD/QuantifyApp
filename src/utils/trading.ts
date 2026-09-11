@@ -45,6 +45,61 @@ export function isTradingNow(d: Date = new Date()): boolean {
   return morning || afternoon;
 }
 
+function partsInTz(d: Date, timeZone: string): ChinaParts {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    const wdMap: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    };
+    const hour = parseInt(get('hour'), 10);
+    const minute = parseInt(get('minute'), 10);
+    return {
+      day: wdMap[get('weekday')] ?? 0,
+      hour: Number.isNaN(hour) ? 0 : hour,
+      minute: Number.isNaN(minute) ? 0 : minute,
+    };
+  } catch {
+    return chinaParts(d);
+  }
+}
+
+/** 港股近似：工作日 09:30–12:00 / 13:00–16:00 HKT（不含节假日） */
+export function isHkTradingNow(d: Date = new Date()): boolean {
+  const { day, hour, minute } = partsInTz(d, 'Asia/Hong_Kong');
+  if (day === 0 || day === 6) return false;
+  const mins = hour * 60 + minute;
+  return (mins >= 9 * 60 + 30 && mins <= 12 * 60) || (mins >= 13 * 60 && mins <= 16 * 60);
+}
+
+/** 美股近似：工作日 09:30–16:00 America/New_York（含夏令时；不含节假日） */
+export function isUsTradingNow(d: Date = new Date()): boolean {
+  const { day, hour, minute } = partsInTz(d, 'America/New_York');
+  if (day === 0 || day === 6) return false;
+  const mins = hour * 60 + minute;
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
+
+/** 批量标的中是否有任一相关市场在盘中（用于轮询/TTL 节流） */
+export function isAnyMarketTradingNow(
+  symbols: ReadonlyArray<{ exchange: string }>,
+  d: Date = new Date(),
+): boolean {
+  if (isTradingNow(d)) return true;
+  const hasHk = symbols.some((s) => s.exchange === 'HK');
+  const hasUs = symbols.some((s) => s.exchange === 'US');
+  if (hasHk && isHkTradingNow(d)) return true;
+  if (hasUs && isUsTradingNow(d)) return true;
+  return false;
+}
+
 // ============================================================
 // 中国时区日序号（纯算术，不依赖 Intl，供 K 线新鲜度判定使用）
 // ============================================================

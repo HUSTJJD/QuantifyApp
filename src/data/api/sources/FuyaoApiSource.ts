@@ -71,16 +71,15 @@ import type {
   CashFlowStatement,
   FinancialIndicator,
   FinancialReport,
-  ProfitForecast,
   HistoricalFinancialParams,
   IndicatorsParams,
   Exchange,
   AssetType,
 } from '../types';
-import { toThsCode, fromThsCode, marketOf, parseSymbol } from '@/domain/symbol';
+import { toThsCode, fromThsCode, marketOf, parseSymbol, isIndexSymbol } from '@/domain/symbol';
 import { cleanCandles } from '../candleValidity';
 import { register } from '../DataSourceRegistry';
-import { HithsaHttpClient } from './HithsaHttpClient';
+import { getUnifiedApiKey } from '../config';
 
 export const FUYAO_SOURCE_ID = 'fuyao';
 export const FUYAO_SOURCE_NAME = '同花顺(SDK)';
@@ -185,7 +184,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   constructor(keyProvider?: () => string | undefined) {
     super();
-    this.keyProvider = keyProvider ?? (() => HithsaHttpClient.resolveUnifiedKey());
+    this.keyProvider = keyProvider ?? (() => getUnifiedApiKey());
   }
 
   async init(): Promise<void> {
@@ -214,21 +213,68 @@ export class FuyaoApiSource extends BaseMarketDataSource {
     return this.client;
   }
 
+  /** 有界重试次数（与 HithsaHttpClient 同方案：1 次首发 + 最多 3 次重试） */
+  private static readonly GUARD_MAX_RETRIES = 3;
+  /** 退避基准（毫秒），指数增长：400 -> 800 -> 1600 */
+  private static readonly GUARD_BACKOFF_BASE_MS = 400;
+
+  /**
+   * 判定是否为「快速瞬态故障」（值得在 guard 内退避重试）：
+   *  - FuyaoApiError：业务码 4001 限流 / 5xxx 服务端异常（官方契约允许指数退避重试，且响应很快）
+   *  - FuyaoHttpError：拿到真实 HTTP 响应的 429 限流 / 5xx 服务端异常（快速）
+   *  - 超时（FuyaoTimeoutError，20s 慢故障）/ 纯网络失败（status undefined）**不在此重试**：
+   *    重试一次又要白等 20s，留给 SourceRouter 多源兜底 + 熔断处理
+   */
+  private static isTransientFuyaoError(e: unknown): boolean {
+    if (e instanceof FuyaoApiError) {
+      return e.code === 4001 || (e.code >= 5000 && e.code <= 5003);
+    }
+    if (e instanceof FuyaoHttpError) {
+      const s = e.status;
+      return typeof s === 'number' && (s === 429 || (s >= 500 && s < 600));
+    }
+    return false;
+  }
+
   /** 归一化 SDK 错误为 DataSourceError（保留 retryable 语义） */
-  private guard<T>(p: Promise<T>, msg: string): Promise<T> {
-    return p.catch((e: unknown) => {
-      if (e instanceof FuyaoApiError) {
-        throw new DataSourceError(e.message || msg, FUYAO_SOURCE_ID, e.code, e);
+  private static toDataSourceError(e: unknown, msg: string): DataSourceError {
+    if (e instanceof FuyaoApiError) {
+      return new DataSourceError(e.message || msg, FUYAO_SOURCE_ID, e.code, e);
+    }
+    if (e instanceof FuyaoTimeoutError) {
+      return new DataSourceError(msg, FUYAO_SOURCE_ID, 5002, e);
+    }
+    if (e instanceof FuyaoHttpError) {
+      return new DataSourceError(msg, FUYAO_SOURCE_ID, e.status, e);
+    }
+    if (e instanceof DataSourceError) return e;
+    return new DataSourceError(msg, FUYAO_SOURCE_ID, undefined, e);
+  }
+
+  /**
+   * 统一错误包裹 + 快速瞬态故障有界退避重试（与 HithsaHttpClient 同方案：
+   * 最多 3 次重试，400/800/1600ms 指数退避）。
+   *
+   * 接受**惰性 thunk** 而非已发起的 Promise：只有惰性执行才能重试时重新发请求。
+   * 429 限流（共享 Key / 并发轮询易触发）在此有界重试，避免直接升级为「真实故障」
+   * 导致 Router 全链失败刷 LogBox；超时/纯网络等慢故障立即抛错，交由 Router 兜底。
+   */
+  private async guard<T>(op: () => Promise<T>, msg: string): Promise<T> {
+    const maxRetries = FuyaoApiSource.GUARD_MAX_RETRIES;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await op();
+      } catch (e) {
+        lastErr = e;
+        if (!FuyaoApiSource.isTransientFuyaoError(e) || attempt >= maxRetries) break;
+        // 指数退避：400ms, 800ms, 1600ms（与 HithsaHttpClient 一致）
+        await new Promise<void>((r) =>
+          setTimeout(r, FuyaoApiSource.GUARD_BACKOFF_BASE_MS * Math.pow(2, attempt)),
+        );
       }
-      if (e instanceof FuyaoTimeoutError) {
-        throw new DataSourceError(msg, FUYAO_SOURCE_ID, 5002, e);
-      }
-      if (e instanceof FuyaoHttpError) {
-        throw new DataSourceError(msg, FUYAO_SOURCE_ID, e.status, e);
-      }
-      if (e instanceof DataSourceError) throw e;
-      throw new DataSourceError(msg, FUYAO_SOURCE_ID, undefined, e);
-    });
+    }
+    throw FuyaoApiSource.toDataSourceError(lastErr, msg);
   }
 
   private toQuote(symbol: Symbol, d: {
@@ -261,7 +307,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   // ===================== 元信息 =====================
   async search(params: SearchParams): Promise<Instrument[]> {
     const res = await this.guard(
-      this.get().meta.search({
+      () => this.get().meta.search({
         q: params.keyword,
         exchange: params.exchange,
         assetType: params.assetType as never,
@@ -274,7 +320,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async listTickers(opts?: { exchange?: Exchange; assetType?: AssetType; limit?: number; offset?: number }): Promise<Instrument[]> {
     const res = await this.guard(
-      this.get().meta.listTickers({
+      () => this.get().meta.listTickers({
         // fuyao AssetType 子集与本项目联合不完全对齐，运行时原样透传
         assetType: opts?.assetType as never,
         limit: opts?.limit ?? 1000,
@@ -306,7 +352,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
     if (symbols.length === 0) return [];
     const codes = symbols.map(toThsCode).join(',');
     const res = await this.guard(
-      this.get().aShare.prices.snapshot({ thscodes: codes }),
+      () => this.get().aShare.prices.snapshot({ thscodes: codes }),
       `同花顺行情快照失败:${codes}`,
     );
     const byCode = new Map<string, Quote>();
@@ -328,7 +374,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
     }
     const { start, end } = resolveRange(params);
     const res = await this.guard(
-      this.get().aShare.prices.historical({
+      () => this.get().aShare.prices.historical({
         thscode: toThsCode(params.symbol),
         interval: PERIOD_TO_INTERVAL[params.period] as '1d' | '1w' | '1mo',
         start,
@@ -342,18 +388,25 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
     // 指数/板块/港股美股无复权因子
-    if (symbol.exchange === 'TI' || symbol.exchange === 'HK' || symbol.exchange === 'US') {
+    if (isIndexSymbol(symbol) || symbol.exchange === 'HK' || symbol.exchange === 'US') {
       return [];
     }
-    const res = await this.guard(
-      this.get().aShare.corporateActions.adjustmentFactors({
-        thscode: toThsCode(symbol),
-        from,
-        to,
-      }),
-      '同花顺复权因子失败',
-    );
-    return (res.data?.item ?? []).map((it) => {
+    let res: any;
+    try {
+      res = await this.guard(
+        () => this.get().aShare.corporateActions.adjustmentFactors({
+          thscode: toThsCode(symbol),
+          from,
+          to,
+        }),
+        '同花顺复权因子失败',
+      );
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (/No adjustment events|empty|无复权/i.test(m)) return [];
+      throw e;
+    }
+    return ((res.data?.item ?? []) as any[]).map((it: any) => {
       // SDK 类型定义缺少配股字段，但官方端点实际会返回；
       // 以交叉类型窄化保留运行时透传，避免类型缺口。
       const raw = it as typeof it & { allotment_ratio?: number; allotment_price?: number };
@@ -373,7 +426,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   async getValuations(symbols: Symbol[]): Promise<Valuation[]> {
     if (symbols.length === 0) return [];
     const res = await this.guard(
-      this.get().aShare.valuations.snapshot({ thscodes: symbols.map(toThsCode).join(',') }),
+      () => this.get().aShare.valuations.snapshot({ thscodes: symbols.map(toThsCode).join(',') }),
       '同花顺估值快照失败',
     );
     const ts = res.data?.timestamp ?? null;
@@ -396,7 +449,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getIncomeStatements(params: HistoricalFinancialParams): Promise<IncomeStatement[]> {
     const res = await this.guard(
-      this.get().aShare.financials.incomeStatements({
+      () => this.get().aShare.financials.incomeStatements({
         thscode: toThsCode(params.symbol),
         period: params.period,
         limit: params.limit,
@@ -431,7 +484,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getBalanceSheets(params: HistoricalFinancialParams): Promise<BalanceSheet[]> {
     const res = await this.guard(
-      this.get().aShare.financials.balanceSheets({
+      () => this.get().aShare.financials.balanceSheets({
         thscode: toThsCode(params.symbol),
         period: params.period,
         limit: params.limit,
@@ -460,7 +513,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getCashFlowStatements(params: HistoricalFinancialParams): Promise<CashFlowStatement[]> {
     const res = await this.guard(
-      this.get().aShare.financials.cashFlowStatements({
+      () => this.get().aShare.financials.cashFlowStatements({
         thscode: toThsCode(params.symbol),
         period: params.period,
         limit: params.limit,
@@ -488,7 +541,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFinancialIndicators(params: IndicatorsParams): Promise<FinancialIndicator[]> {
     const res = await this.guard(
-      this.get().aShare.financials.indicators({
+      () => this.get().aShare.financials.indicators({
         thscode: toThsCode(params.symbol),
         report: params.report ?? '',
       }),
@@ -562,7 +615,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
    */
   async getLimitBreakPool(opts?: { dateMs?: number; page?: number; size?: number }): Promise<ListResult<LimitBreakStock>> {
     const res = await this.guard(
-      this.get().specialData.limitBreakPool({
+      () => this.get().specialData.limitBreakPool({
         dateMs: opts?.dateMs,
         page: opts?.page,
         size: opts?.size,
@@ -590,7 +643,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   async getAuctionSnapshot(params: AuctionSnapshotParams): Promise<AuctionSnapshot[]> {
     if (params.symbols.length === 0) return [];
     const res = await this.guard(
-      this.get().aShare.auction.snapshot({
+      () => this.get().aShare.auction.snapshot({
         thscodes: params.symbols.map(toThsCode).join(','),
         stage: params.stage,
       }),
@@ -615,7 +668,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   /** 短线风向标竞价基准 */
   async getShortTermBenchmark(date?: string): Promise<ShortTermBenchmark[]> {
     const res = await this.guard(
-      this.get().aShare.auction.shortTermBenchmark(date ? { date } : undefined),
+      () => this.get().aShare.auction.shortTermBenchmark(date ? { date } : undefined),
       '短线风向标失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -632,31 +685,44 @@ export class FuyaoApiSource extends BaseMarketDataSource {
    * ── 字段：thscode/name/last_price/price_change_ratio_pct/first_limit_time/last_limit_time/turnover_ratio_pct
    */
   async getLimitDownPool(opts?: { dateMs?: number; page?: number; size?: number }): Promise<ListResult<LimitDownStock>> {
+    // 首页情绪条只要 total 时仍传 size=1；上游若不回 total，需至少拿到真实条数。
+    // 这里 size 缺省给 100，保证 items.length 可近似 total（跌停家数通常 < 100）。
     const res = await this.guard(
-      this.get().specialData.limitDownPool({
+      () => this.get().specialData.limitDownPool({
         dateMs: opts?.dateMs,
         page: opts?.page,
-        size: opts?.size,
+        size: opts?.size ?? 100,
       }),
       '同花顺跌停池失败',
     );
+    const items = (res.data?.item ?? []).map((d) => ({
+      symbol: fromThsCode(d.thscode),
+      name: d.name,
+      lastPrice: d.last_price,
+      changePct: d.price_change_ratio_pct,
+      firstLimitTime: d.first_limit_time ?? undefined,
+      lastLimitTime: d.last_limit_time ?? undefined,
+      turnoverRatioPct: d.turnover_ratio_pct ?? null,
+    }));
+    const total =
+      (res.data as { total?: number } | undefined)?.total ??
+      (res.data as { count?: number } | undefined)?.count ??
+      items.length;
     return {
-      items: (res.data?.item ?? []).map((d) => ({
-        symbol: fromThsCode(d.thscode),
-        name: d.name,
-        lastPrice: d.last_price,
-        changePct: d.price_change_ratio_pct,
-        firstLimitTime: d.first_limit_time ?? undefined,
-        lastLimitTime: d.last_limit_time ?? undefined,
-        turnoverRatioPct: d.turnover_ratio_pct ?? null,
-      })),
+      items,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size: opts?.size ?? 100,
+        pages: Math.max(1, Math.ceil(total / (opts?.size ?? 100))),
+      },
     };
   }
 
   // ===================== 指数 / 板块 =====================
   async listIndices(tag?: IndexTag): Promise<IndexInfo[]> {
     const res = await this.guard(
-      this.get().index.catalogThsIndexList({ tag: tag as never }),
+      () => this.get().index.catalogThsIndexList({ tag: tag as never }),
       '同花顺指数列表失败',
     );
     return (res.data?.item ?? []).map((it) => {
@@ -667,7 +733,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getIndexConstituents(symbol: Symbol): Promise<IndexConstituent[]> {
     const res = await this.guard(
-      this.get().index.constituentsThsStockList({ thscode: toThsCode(symbol) }),
+      () => this.get().index.constituentsThsStockList({ thscode: toThsCode(symbol) }),
       '同花顺指数成分失败',
     );
     return (res.data?.item ?? []).map((it) => {
@@ -679,7 +745,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
     const res = await this.guard(
-      this.get().index.pricesSnapshot({ thscodes: symbols.map(toThsCode).join(',') }),
+      () => this.get().index.pricesSnapshot({ thscodes: symbols.map(toThsCode).join(',') }),
       '同花顺指数快照失败',
     );
     const byCode = new Map<string, Quote>();
@@ -693,7 +759,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
     }
     const { start, end } = resolveRange(params);
     const res = await this.guard(
-      this.get().index.pricesHistorical({
+      () => this.get().index.pricesHistorical({
         thscode: toThsCode(params.symbol),
         start,
         end,
@@ -706,7 +772,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   // ===================== 基金 =====================
   async getFundProfile(symbol: Symbol, fundType: FundType): Promise<FundProfile> {
     const res = await this.guard(
-      this.get().funds.profile.detail({ fundType, thscode: toThsCode(symbol) }),
+      () => this.get().funds.profile.detail({ fundType, thscode: toThsCode(symbol) }),
       '同花顺基金档案失败',
     );
     const d = res.data?.item?.[0];
@@ -722,7 +788,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundHoldings(symbol: Symbol, fundType: FundType): Promise<FundHolding[]> {
     const res = await this.guard(
-      this.get().funds.portfolio.holdings({ fundType, thscode: toThsCode(symbol) }),
+      () => this.get().funds.portfolio.holdings({ fundType, thscode: toThsCode(symbol) }),
       '同花顺基金持仓失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -735,7 +801,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundNav(symbol: Symbol, fundType: FundType, range?: FundNavRange, navType?: FundNavType): Promise<FundNav[]> {
     const res = await this.guard(
-      this.get().funds.performance.nav({
+      () => this.get().funds.performance.nav({
         fundType,
         thscode: toThsCode(symbol),
         range,
@@ -753,7 +819,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundReturns(symbol: Symbol, fundType: FundType): Promise<FundReturn> {
     const res = await this.guard(
-      this.get().funds.performance.returns({ fundType, thscode: toThsCode(symbol) }),
+      () => this.get().funds.performance.returns({ fundType, thscode: toThsCode(symbol) }),
       '同花顺基金回报失败',
     );
     const d = res.data?.item?.[0] ?? {};
@@ -772,7 +838,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundHolders(symbol: Symbol, fundType: FundType, mergeScope?: FundMergeScope): Promise<FundHolder[]> {
     const res = await this.guard(
-      this.get().funds.holders.detail({ fundType, thscode: toThsCode(symbol), mergeScope }),
+      () => this.get().funds.holders.detail({ fundType, thscode: toThsCode(symbol), mergeScope }),
       '同花顺基金份额持有人失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -789,7 +855,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundMarketSnapshot(symbol: Symbol): Promise<Quote> {
     const res = await this.guard(
-      this.get().funds.market.snapshot({ thscode: toThsCode(symbol) }),
+      () => this.get().funds.market.snapshot({ thscode: toThsCode(symbol) }),
       '同花顺基金行情失败',
     );
     const d = res.data?.item?.[0];
@@ -799,7 +865,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getFundHistorical(symbol: Symbol, startMs: number, endMs: number): Promise<Candle[]> {
     const res = await this.guard(
-      this.get().funds.market.historical({ thscode: toThsCode(symbol), start: startMs, end: endMs }),
+      () => this.get().funds.market.historical({ thscode: toThsCode(symbol), start: startMs, end: endMs }),
       '同花顺基金历史失败',
     );
     return cleanCandles((res.data?.item ?? []).map(toCandle));
@@ -808,7 +874,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   // ===================== 特色数据 =====================
   async getLimitUpPool(opts?: { dateMs?: number; page?: number; size?: number; sortField?: string; sortDir?: string }): Promise<ListResult<LimitUpStock>> {
     const res = await this.guard(
-      this.get().specialData.limitUpPool({
+      () => this.get().specialData.limitUpPool({
         dateMs: opts?.dateMs,
         page: opts?.page,
         size: opts?.size,
@@ -817,21 +883,33 @@ export class FuyaoApiSource extends BaseMarketDataSource {
       }),
       '同花顺涨停池失败',
     );
+    const items = (res.data?.item ?? []).map((d) => ({
+      symbol: fromThsCode(d.thscode),
+      name: d.name,
+      isSt: Boolean(d.is_st),
+      isNew: Boolean(d.is_new),
+      lastPrice: d.last_price,
+      changePct: d.price_change_ratio_pct,
+      limitUpTime: d.limit_up_time ?? '',
+      limitUpReason: d.limit_up_reason ?? '',
+      continueDayText: d.continue_day_text ?? '',
+      continueDayCnt: d.continue_day_cnt,
+      sealMoney: d.seal_money,
+      maxSealMoney: d.max_seal_money,
+    }));
+    const total =
+      (res.data as { total?: number } | undefined)?.total ??
+      (res.data as { count?: number } | undefined)?.count ??
+      items.length;
+    const size = opts?.size ?? Math.max(items.length, 1);
     return {
-      items: (res.data?.item ?? []).map((d) => ({
-        symbol: fromThsCode(d.thscode),
-        name: d.name,
-        isSt: Boolean(d.is_st),
-        isNew: Boolean(d.is_new),
-        lastPrice: d.last_price,
-        changePct: d.price_change_ratio_pct,
-        limitUpTime: d.limit_up_time ?? '',
-        limitUpReason: d.limit_up_reason ?? '',
-        continueDayText: d.continue_day_text ?? '',
-        continueDayCnt: d.continue_day_cnt,
-        sealMoney: d.seal_money,
-        maxSealMoney: d.max_seal_money,
-      })),
+      items,
+      pagination: {
+        total,
+        page: opts?.page ?? 1,
+        size,
+        pages: Math.max(1, Math.ceil(total / size)),
+      },
     };
   }
 
@@ -863,7 +941,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
    * 业务/网络错误包装为 DataSourceError；本源不支持时由上游 code 表达
    */
   async getLimitUpLadder(): Promise<LimitUpLadder> {
-    const res = await this.guard(this.get().specialData.limitUpLadder(), '同花顺连板梯队失败');
+    const res = await this.guard(() => this.get().specialData.limitUpLadder(), '同花顺连板梯队失败');
     const d = res.data;
     if (!d) {
       return {
@@ -910,7 +988,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getAnomalyList(tagCodes?: string[]): Promise<AnomalyStock[]> {
     const res = await this.guard(
-      this.get().specialData.anomalyAnalysisList({ tagCodes: tagCodes?.join(',') }),
+      () => this.get().specialData.anomalyAnalysisList({ tagCodes: tagCodes?.join(',') }),
       '同花顺异动榜失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -924,7 +1002,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getAnomalyByStocks(symbols: Symbol[]): Promise<AnomalyStock[]> {
     const res = await this.guard(
-      this.get().specialData.anomalyAnalysisStock({ thscodes: symbols.map(toThsCode).join(',') }),
+      () => this.get().specialData.anomalyAnalysisStock({ thscodes: symbols.map(toThsCode).join(',') }),
       '同花顺个股异动失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -938,7 +1016,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getSkyrocketList(period?: 'day' | 'hour'): Promise<HotStock[]> {
     const res = await this.guard(
-      this.get().specialData.skyrocketList({ period }),
+      () => this.get().specialData.skyrocketList({ period }),
       '同花顺飙升榜失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -953,7 +1031,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getHotStockList(period?: 'day' | 'hour'): Promise<HotStock[]> {
     const res = await this.guard(
-      this.get().specialData.hotStockList({ period }),
+      () => this.get().specialData.hotStockList({ period }),
       '同花顺人气榜失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -968,7 +1046,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getHotStockListHistory(date: string): Promise<HotStock[]> {
     const res = await this.guard(
-      this.get().specialData.hotStockListHistory({ date }),
+      () => this.get().specialData.hotStockListHistory({ date }),
       '同花顺人气榜历史失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -983,7 +1061,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getHotStockRankTrend(symbol: Symbol, startDate: string, endDate: string): Promise<HotStock[]> {
     const res = await this.guard(
-      this.get().specialData.hotStockRankTrend({ thscode: toThsCode(symbol), startDate, endDate }),
+      () => this.get().specialData.hotStockRankTrend({ thscode: toThsCode(symbol), startDate, endDate }),
       '同花顺人气趋势失败',
     );
     return (res.data?.item ?? []).map((d) => ({
@@ -998,7 +1076,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   async getDragonTigerList(opts?: { boardType?: string; date?: string }): Promise<DragonTigerList> {
     const res = await this.guard(
-      this.get().specialData.dragonTigerList({
+      () => this.get().specialData.dragonTigerList({
         boardType: opts?.boardType as 'all' | 'org' | 'hot_money',
         date: opts?.date,
       }),
@@ -1054,7 +1132,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
 
   // ===================== 交易日历 =====================
   async getTradingDays(): Promise<TradingDay[]> {
-    const res = await this.guard(this.get().aShare.calendar.tradingDays(), '同花顺交易日历失败');
+    const res = await this.guard(() => this.get().aShare.calendar.tradingDays(), '同花顺交易日历失败');
     return (res.data?.item ?? []).map((d) => ({
       dateMs: d.date_ms,
       date: d.date.length === 8 ? `${d.date.slice(0, 4)}-${d.date.slice(4, 6)}-${d.date.slice(6, 8)}` : d.date,

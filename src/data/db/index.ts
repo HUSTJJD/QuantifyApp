@@ -14,9 +14,9 @@
  *   storage/           —— 键值小数据层（设置项等），引擎可插拔
  *
  * 业务层入口：
- *   - 行情 API：  import { marketData } from '@/api'
- *   - 结构化数据：import { database, userStore, domainCache, quantStore } from '@/db'
- *   - 键值设置：  import { storage, StorageKeys } from '@/db/storage'
+ *   - 行情 API：  import { marketData } from '@/data/api'
+ *   - 结构化数据：import { database, userStore, domainCache, quantStore } from '@/data/db'
+ *   - 键值设置：  import { storage, StorageKeys } from '@/data/db/storage'
  */
 import { KlineDatabase } from './KlineDatabase';
 import { AsyncStorageKlineAdapter } from './AsyncStorageKlineAdapter';

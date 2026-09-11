@@ -4,6 +4,9 @@
  */
 export type ThemeMode = 'dark' | 'light';
 
+/** 涨跌色方案：A股红涨 / 国际绿涨 / 色弱蓝橙 */
+export type UpDownScheme = 'cn' | 'intl' | 'colorblind';
+
 export interface ColorScheme {
   background: string;
   surface: string;
@@ -23,50 +26,75 @@ export interface ColorScheme {
   warning: string;
   info: string;
   link: string;
+  /** 主色半透明底（芯片/选中态） */
+  primarySoft: string;
+  /** 分组卡/摘要条底色 */
+  surfaceMuted: string;
+  /** 盘中 LIVE / 焦点强调（琥珀，Bloomberg 签名） */
+  live: string;
 }
 
 export const DarkColors: ColorScheme = {
-  background: '#0E1116',
-  surface: '#161B22',
-  surfaceAlt: '#1C2230',
-  border: '#2A313C',
-  text: '#E6EDF3',
-  textSecondary: '#8B949E',
-  primary: '#E5484D',
+  // 终端感暗色：更深底 + 青绿主色 + 琥珀 LIVE
+  background: '#121212',
+  surface: '#1A1A1A',
+  surfaceAlt: '#242424',
+  border: 'rgba(255,255,255,0.08)',
+  text: '#F5F5F5',
+  textSecondary: 'rgba(255,255,255,0.55)',
+  primary: '#11BEBC',
   up: '#F5465C',
   down: '#2DCB73',
-  flat: '#8B949E',
+  flat: 'rgba(255,255,255,0.38)',
   success: '#2DCB73',
   warning: '#F5A623',
-  info: '#4C9AFF',
-  link: '#4C9AFF',
+  info: '#66B0FB',
+  link: '#66B0FB',
+  primarySoft: 'rgba(17,190,188,0.16)',
+  surfaceMuted: 'rgba(255,255,255,0.06)',
+  live: '#F5A623',
 };
 
 export const LightColors: ColorScheme = {
-  background: '#F5F6F8',
+  // 浅色：#FAFAFA 底 + 纯白卡片
+  background: '#FAFAFA',
   surface: '#FFFFFF',
-  surfaceAlt: '#EEF1F5',
-  border: '#E3E6EB',
-  text: '#1A1F29',
-  textSecondary: '#6B7280',
-  primary: '#E5484D',
+  surfaceAlt: '#F2F4F3',
+  border: 'rgba(0,0,0,0.08)',
+  text: 'rgba(0,0,0,0.87)',
+  textSecondary: 'rgba(0,0,0,0.54)',
+  primary: '#00A19F',
   up: '#E5484D',
   down: '#16A34A',
-  flat: '#6B7280',
+  flat: 'rgba(0,0,0,0.38)',
   success: '#16A34A',
   warning: '#D97706',
   info: '#2563EB',
-  link: '#2563EB',
+  link: '#00A19F',
+  primarySoft: 'rgba(0,161,159,0.12)',
+  surfaceMuted: '#F2F4F3',
+  live: '#D97706',
 };
 
-export function getColors(mode: ThemeMode): ColorScheme {
-  return mode === 'light' ? LightColors : DarkColors;
+export function getColors(mode: ThemeMode, scheme: UpDownScheme = 'cn'): ColorScheme {
+  const base = mode === 'light' ? LightColors : DarkColors;
+  if (scheme === 'cn') return base;
+  if (scheme === 'intl') {
+    return { ...base, up: base.down, down: base.up };
+  }
+  // colorblind: 蓝涨橙跌（亮暗均适配）
+  if (mode === 'light') {
+    return { ...base, up: '#2563EB', down: '#EA580C' };
+  }
+  return { ...base, up: '#60A5FA', down: '#FB923C' };
 }
 
 /** 默认（向后兼容）导出暗色，避免既有 import { colors } 报错。 */
 export const colors = DarkColors;
 
 export const spacing = {
+  /** 2px — 发丝间距、图标与标签 */
+  xxs: 2,
   xs: 4,
   sm: 8,
   md: 12,
@@ -76,8 +104,12 @@ export const spacing = {
 };
 
 export const fontSize = {
+  /** 看板极小标签 / 时间戳 */
+  micro: 10,
   xs: 11,
   sm: 13,
+  /** 报价主数字（tabular） */
+  quote: 13,
   md: 15,
   lg: 18,
   xl: 22,
@@ -100,6 +132,29 @@ export const radius = {
   lg: 16,
   pill: 999,
 };
+
+/** 动效时长（ms），对齐 Opptrix MOTION */
+export const duration = {
+  fast: 120,
+  base: 200,
+  slow: 320,
+} as const;
+
+/** 语义布局别名：组件消费这些，避免硬编码 */
+export const layout = {
+  gapInline: spacing.xs,
+  gapStack: spacing.sm,
+  gapCard: spacing.md,
+  paddingCard: spacing.lg,
+  radiusControl: radius.sm,
+  radiusCard: radius.md,
+  radiusPanel: radius.lg,
+  radiusPill: radius.pill,
+  /** 分组芯片高度（对齐 Opptrix watchlist chips） */
+  chipHeight: 28,
+  /** 行内触控最小高度 */
+  rowMinHeight: 48,
+} as const;
 
 /** 阴影/层级（按模式返回，暗色更弱、亮色更柔） */
 export const shadow = {
@@ -135,6 +190,6 @@ export const iconSize = {
   xl: 32,
 } as const;
 
-export const theme = { colors, spacing, fontSize, fontWeight, radius, shadow, zIndex, iconSize };
+export const theme = { colors, spacing, fontSize, fontWeight, radius, duration, layout, shadow, zIndex, iconSize };
 export type Theme = typeof theme;
 

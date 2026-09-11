@@ -4,8 +4,8 @@
  * 行情实时性强：缓存只用于秒显与失败回退，TTL 必须短。
  * 旧版 24h 会导致过期价（如港股价停在昨收）长期霸屏。
  */
-import { domainCache } from '@/db/DomainCache';
-import type { Quote, Symbol } from '@/api';
+import { domainCache } from '@/data/db/DomainCache';
+import type { Quote, Symbol } from '@/data/api';
 
 /** 行情缓存最大有效年龄：60s */
 export const QUOTES_MAX_AGE_MS = 60_000;

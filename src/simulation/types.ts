@@ -4,7 +4,7 @@
  * 参考标准模拟盘（富途/同花顺模拟交易）设计：独立的虚拟账户、A 股交易规则、
  * 买入冻资、卖出 T+1 可取、手续费（佣金+印花税+过户费）、持仓盈亏实时计算。
  */
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 
 /** 买卖方向 */
 export type Side = 'buy' | 'sell';

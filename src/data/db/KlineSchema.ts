@@ -9,7 +9,7 @@
  * 这里的模型与具体存储引擎无关；引擎（AsyncStorage 临时实现 / 原生 SQLite 后续接入）
  * 只要实现 KlineDatabasePort 即可，业务层零改动。
  */
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
 /** 归一化后的标的键（如 SH.600519），作为表行分区键 */
 export type SymbolKey = string;

@@ -3,7 +3,7 @@
  * 仅依赖 Candle 序列，输入需按时间升序。结果数组与输入等长（前导不足处为 NaN）。
  * 这是「个人量化模块」的计算底座，后续可自行扩展更多指标。
  */
-import type { Candle } from '@/api';
+import type { Candle } from '@/data/api';
 
 /** 简单移动平均。period<=0 时返回全 NaN。 */
 export function sma(values: number[], period: number): number[] {

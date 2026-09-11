@@ -3,7 +3,7 @@
  * 封装 SimAccountRepo 的读取/提交/重置，并提供基于实时行情的盈亏汇总。
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { Quote, Symbol } from '@/api';
+import type { Quote, Symbol } from '@/data/api';
 import { SimAccountRepo } from '@/simulation';
 import { summarize, symbolKey, type PortfolioSummary } from '@/simulation';
 import type { SimAccount, Side, OrderType, SimPosition, Order, Trade, SubmitResult } from '@/simulation';

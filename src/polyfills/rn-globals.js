@@ -11,7 +11,6 @@
  *
  * 该模块必须在任何依赖 stock-sdk 的模块求值之前加载（见 index.js 顶部 import）。
  */
-/* eslint-disable no-undef */
 
 // AbortController / AbortSignal：现代 RN 通常已自带；缺失时补最小实现。
 if (typeof globalThis.AbortController === 'undefined') {

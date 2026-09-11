@@ -5,24 +5,38 @@
  *  - 展示启动动画后渲染导航容器；
  *  - 用 react-native-paper 的 PaperProvider 提供统一 Material 组件主题。
  */
-import React, { useEffect, useState } from 'react';
-import { StatusBar, AppState } from 'react-native';
+import React, { useEffect } from 'react';
+import { StatusBar, AppState, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider as PaperProvider, MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
-// import { MaterialCommunityIcons } from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useFonts } from 'expo-font';
 import { NavigationContainer } from '@react-navigation/native';
-import { marketData, applyUserPreferences } from '@/api';
-import { database } from '@/db';
+import { marketData, applyUserPreferences } from '@/data/api';
+import { database } from '@/data/db';
 import { AppNavigator } from '@/navigation/AppNavigator';
-import { SplashScreen } from '@/components/SplashScreen';
 import { ThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
-import { startSignalEngine } from '@/quant/SignalEngine';
-import { startStrategyEngine } from '@/quant/StrategyEngine';
+import { startQuantRuntime } from '@/quant/runtime';
 import { AlertCenterProvider, PollerBridge } from '@/features/watchlist/alertCenter';
-import { scheduleBackgroundSync } from '@/sync/scheduler';
+import { scheduleBackgroundSync } from '@/data/sync/scheduler';
+import { OnboardingScreen } from '@/features/onboarding/OnboardingScreen';
+import { DigestBridge } from '@/features/notify/DigestBridge';
+import { getAppPrefs } from '@/settings/appPrefs';
+import '@/features/notify/localDigest';
+import '@/features/scanner/EodPickerScreen';
+import '@/data/sync/registerSyncJob';
+import {
+  startSchedulerTicker,
+  stopSchedulerTicker,
+  ensureDefaultJobs,
+  setJobNotifySink,
+} from '@/quant/scheduler';
+import { sendNotify } from '@/features/notify/channels';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-/** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。 */
+/** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。
+ * 注意：react-native-paper 可能以「函数调用」而非 JSX 调用 settings.icon，
+ * 不能在内部使用 Hooks（含 React Compiler 注入的 cache hook）。 */
 function PaperIcon(props: React.ComponentProps<typeof MaterialCommunityIcons>): React.JSX.Element {
   return <MaterialCommunityIcons {...props} />;
 }
@@ -32,7 +46,13 @@ function PaperIcon(props: React.ComponentProps<typeof MaterialCommunityIcons>): 
 //  2. 未设置时，可临时用构建期环境变量 THS_API_KEY 注入（仅测试用，不落盘）；
 //  3. 严禁把真实 Key 写死进代码/默认值。
 function App(): React.JSX.Element {
-  const [splashDone, setSplashDone] = useState(false);
+  // MaterialCommunityIcons 字体虽由 react-native-vector-icons 的 pod 拷进 bundle，
+  // 但 iOS 不会自动注册未写入 UIAppFonts 的字体，需用 expo-font 运行时加载一次才能被 Text 使用。
+  // 注意：此处仅用 useFonts 运行时注册，不再在 app.json 配置 expo-font 插件，
+  // 以免与 pod 的 [CP] Copy Pods Resources 产生「重复产物」构建冲突。
+  const [fontsLoaded] = useFonts({
+    MaterialCommunityIcons: require('./assets/fonts/MaterialCommunityIcons.ttf'),
+  });
 
   useEffect(() => {
     // 回灌用户偏好（主数据源选择 + Key）；传入测试用环境变量 Key
@@ -44,43 +64,86 @@ function App(): React.JSX.Element {
     database()
       .prune(Date.now() - 90 * 24 * 3600 * 1000)
       .catch(() => undefined);
-    // 启动清理过期的行情快照缓存
+    // 启动清理过期缓存：行情快照 + 全部领域表/method_cache（防长期只写不删）
     marketData.pruneQuotesCache().catch(() => undefined);
-    // 启动个人量化信号引擎（随交易时段行情推送自动重算）
-    startSignalEngine();
-    // 启动策略自动交易运行时（开启「自动交易」的策略独立模拟盘，随行情推送触发买卖/风控）
-    startStrategyEngine();
+    marketData.pruneDomainCache().catch(() => undefined);
+    // 启动量化运行时：档案信号重算 + 自动交易模拟盘
+    startQuantRuntime();
     // 后台全市场增量同步（全市场标的库 + 日 K 增量；延迟执行不阻塞启动，单进程只跑一轮）
     scheduleBackgroundSync();
-    // 切回前台时再清理一次过期行情缓存，确保旧快照不会跨日残留
-    const appStateSub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') marketData.pruneQuotesCache().catch(() => undefined);
+    // 统一本地调度器
+    ensureDefaultJobs().catch(() => undefined);
+    setJobNotifySink((job, run) => {
+      if (run.status === 'ok' || run.status === 'error') {
+        void sendNotify({
+          title: job.title,
+          body: run.summary || run.error || run.status,
+          data: { jobId: job.id, kind: job.kind, status: run.status },
+        });
+      }
     });
-    return () => appStateSub.remove();
+    startSchedulerTicker();
+    // 切回前台时再清理一次过期缓存，确保旧快照/榜单不会跨日残留
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        marketData.pruneQuotesCache().catch(() => undefined);
+        marketData.pruneDomainCache().catch(() => undefined);
+      }
+    });
+    return () => {
+      appStateSub.remove();
+      stopSchedulerTicker();
+    };
   }, []);
 
+  if (!fontsLoaded) {
+    return <View style={styles.root} />;
+  }
+
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AlertCenterProvider>
-          <AppInner />
-          <PollerBridge />
-        </AlertCenterProvider>
-      </ThemeProvider>
-      {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AlertCenterProvider>
+            <AppInner />
+            <PollerBridge />
+          </AlertCenterProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 /** ThemeProvider 内部：拿到主题 mode 后驱动 Paper / StatusBar。 */
 function AppInner(): React.JSX.Element {
   const { mode } = useAppTheme();
+  const [onboarded, setOnboarded] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    getAppPrefs()
+      .then((p) => setOnboarded(p.hasOnboarded))
+      .catch(() => setOnboarded(true));
+  }, []);
+
   // 用户未显式设置时跟随系统；设置后跟随用户（ThemeProvider 默认 dark，这里以 mode 为准）
   const isDark = mode === 'light' ? false : true;
 
   const paperTheme = isDark
-    ? { ...MD3DarkTheme, colors: { ...MD3DarkTheme.colors, primary: '#E5484D' } }
-    : { ...MD3LightTheme, colors: { ...MD3LightTheme.colors, primary: '#E5484D' } };
+    ? { ...MD3DarkTheme, colors: { ...MD3DarkTheme.colors, primary: '#11BEBC' } }
+    : { ...MD3LightTheme, colors: { ...MD3LightTheme.colors, primary: '#00A19F' } };
+
+  if (onboarded === null) {
+    return <View style={styles.root} />;
+  }
+
+  if (!onboarded) {
+    return (
+      <PaperProvider theme={paperTheme} settings={{ icon: PaperIcon }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <OnboardingScreen onDone={() => setOnboarded(true)} />
+      </PaperProvider>
+    );
+  }
 
   return (
     <PaperProvider theme={paperTheme} settings={{ icon: PaperIcon }}>
@@ -88,8 +151,13 @@ function AppInner(): React.JSX.Element {
       <NavigationContainer>
         <AppNavigator />
       </NavigationContainer>
+      <DigestBridge />
     </PaperProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
 
 export default App;

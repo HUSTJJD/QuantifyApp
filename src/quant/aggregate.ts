@@ -10,7 +10,7 @@
  * 输入须为**不复权**日 K（按时间升序）；聚合结果同样是不复权级别，
  * 若需复权展示，配合 adjustment.adjustCandles 在聚合后/前统一处理。
  */
-import type { Candle, KlinePeriod } from '@/api';
+import type { Candle, KlinePeriod } from '@/data/api';
 
 /** 按周（周一为起点）聚合成周 K */
 export function aggregateWeekly(candles: Candle[]): Candle[] {

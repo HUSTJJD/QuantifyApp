@@ -11,13 +11,13 @@
  * 说明：若本地无日 K（未同步过），回退到行情源实时拉取（一次性使用，不落库，
  * 由 useKline 负责落库路径）。本服务面向「全市场扫描 / 设置页统计」等批量场景。
  */
-import { marketData } from '@/api';
+import { marketData } from '@/data/api';
 import { database } from './index';
 import { MarketMetaStore } from './MarketMetaStore';
 import { aggregateByPeriod } from '@/quant/aggregate';
 import { adjustCandles } from '@/quant/adjustment';
 import type { AdjustmentFactorInput } from '@/quant/adjustment';
-import type { Candle, KlinePeriod, Symbol } from '@/api';
+import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
 /** 本地复权因子 -> 复权计算输入 */
 function toFactorInputs(symbol: Symbol, factors: { exDateMs: number; dividendPerShare: number | null; perShareBonus: number | null; allotmentRatio: number | null; allotmentPrice: number | null }[]): AdjustmentFactorInput[] {

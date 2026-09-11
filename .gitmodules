@@ -1,4 +1,16 @@
-[submodule "native-kline-view"]
-	path = native-kline-view
-	url = https://github.com/HUSTJJD/native-kline-view.git
+[submodule "stock-sdk"]
+	path = stock-sdk
+	url = https://github.com/chengzuopeng/stock-sdk.git
+	branch = master
+[submodule "FuyaoNPM"]
+	path = FuyaoNPM
+	url = https://github.com/Travisun/FuyaoNPM.git
 	branch = main
+[submodule "dukascopy-node"]
+	path = dukascopy-node
+	url = https://github.com/Leo4815162342/dukascopy-node.git
+	branch = master
+[submodule "myhhub-stock"]
+	path = myhhub-stock
+	url = https://github.com/myhhub/stock.git
+	branch = v3.0

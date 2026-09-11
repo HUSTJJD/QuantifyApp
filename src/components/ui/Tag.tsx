@@ -5,7 +5,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { spacing, fontSize, radius } from '@/theme';
+import { fontSize, radius } from '@/theme';
 
 export function Tag({
   text,

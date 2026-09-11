@@ -13,7 +13,7 @@ import {
   addToGroup,
   removeFromGroup,
   type WatchlistGroup,
-} from '@/repositories/WatchlistRepository';
+} from '@/data/repositories/WatchlistRepository';
 
 export function useWatchlistGroups() {
   const [groups, setGroups] = useState<WatchlistGroup[]>([]);
@@ -31,7 +31,9 @@ export function useWatchlistGroups() {
   }, [activeId]);
 
   useEffect(() => {
+    // 仅挂载时加载一次；load 依赖 activeId，入 deps 会在切分组时重复拉全量
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeGroup = groups.find((g) => g.id === activeId) ?? groups[0] ?? null;

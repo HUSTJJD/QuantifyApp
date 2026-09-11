@@ -9,7 +9,7 @@
  * 未列出的默认 absent，避免 88×4 全量铺开导致维护负担。
  * 期望写错 → 一致性测试失败；源能力变化 → 测试失败 → 强制回来改期望或改实现。
  */
-import type { DataSourceMethod } from '@/api';
+import type { DataSourceMethod } from '@/data/api';
 
 export type ExpectationKind = 'supported' | 'unsupported' | 'absent';
 
@@ -42,27 +42,6 @@ const FUYAO: SourceExpectationSet = {
   unsupported: ['getOrderBook', 'getProfitForecast'],
   notes: {
     getOrderBook: '声明了 capabilities 但实现体直接抛 3004：应从 capabilities 移除，否则路由会白白尝试一次',
-    getProfitForecast: '官方无盈利预测端点：实现体 3004，未声明 capabilities',
-  },
-};
-
-/** hithsa：同花顺官方 REST 次主源 */
-const HITHSA: SourceExpectationSet = {
-  sourceId: 'hithsa',
-  supported: [
-    'listTickers', 'search', 'getQuotes', 'getKline',
-    'getValuations', 'getIncomeStatements', 'getBalanceSheets', 'getCashFlowStatements',
-    'getFinancialIndicators', 'getFinancials',
-    'getAdjustmentFactors', 'listIndices', 'getIndexConstituents', 'getIndexQuotes',
-    'getIndexKline', 'getFundProfile', 'getFundHoldings', 'getFundNav', 'getFundReturns',
-    'getFundHolders', 'getFundMarketSnapshot', 'getFundHistorical',
-    'getLimitUpPool', 'getLimitUpLadder', 'getAnomalyList', 'getAnomalyByStocks',
-    'getSkyrocketList', 'getHotStockList', 'getHotStockListHistory', 'getHotStockRankTrend',
-    'getDragonTigerList', 'getTradingDays',
-  ],
-  unsupported: ['getOrderBook', 'getProfitForecast'],
-  notes: {
-    getIndexQuotes: '对纯 .TI（同花顺板块指数）请求内部降级返回空数组：属"能力不覆盖"，首页板块行情因此为空',
     getProfitForecast: '官方无盈利预测端点：实现体 3004，未声明 capabilities',
   },
 };
@@ -118,7 +97,7 @@ const FUND_API: SourceExpectationSet = {
   unsupported: [],
 };
 
-export const SOURCE_EXPECTATIONS: SourceExpectationSet[] = [FUYAO, HITHSA, STOCK_SDK, FUND_API];
+export const SOURCE_EXPECTATIONS: SourceExpectationSet[] = [FUYAO, STOCK_SDK, FUND_API];
 
 /** 查某源对某方法的期望态（未列出 = absent） */
 export function expectationOf(sourceId: string, method: DataSourceMethod): ExpectationKind {

@@ -2,7 +2,7 @@
  * MarketDataClient —— 行情数据统一访问门面（Facade）。
  *
  * 设计理念：
- *  - APP 唯一数据访问点，业务层只 import { marketData } from '@/api'
+ *  - APP 唯一数据访问点，业务层只 import { marketData } from '@/data/api'
  *  - 本类只做「门面 / 参数归一化 / 兼容层」，不做调度逻辑
  *  - 所有调度（源选择、兜底、熔断、批量拆分）统一委托给 SourceRouter
  *  - 屏蔽源差异：业务层不需要知道有多少个源、哪个源提供什么能力
@@ -16,15 +16,14 @@
  *        ↓
  *  具体数据源 (hithsa / stock-sdk / ...)
  */
-import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/cache/QuotesCache';
-import { isIndexSymbol } from '@/domain/symbol';
+import { QuotesCache, QUOTES_MAX_AGE_MS } from '@/data/cache/QuotesCache';
+import { isIndexSymbol, sanitizeSymbol, isNonKlineSymbol } from '@/domain/symbol';
 import { getSource, hasSource, listAvailableSources } from './DataSourceRegistry';
 import { SourceRouter, applyMethod } from './SourceRouter';
 import { DataSourceError } from './MarketDataSource';
 import type { DataSourceMethod, MarketDataSource, MethodArgs, MethodResult } from './MarketDataSource';
-import { readThroughCache } from './MethodCache';
-import { defaultApiConfig, getApiConfig, setApiConfig } from './config';
-import { HithsaHttpClient } from './sources/HithsaHttpClient';
+import { readThroughCache, pruneMethodCache } from './MethodCache';
+import { defaultApiConfig, getApiConfig, setApiConfig, setUnifiedApiKey } from './config';
 import type {
   Symbol,
   Exchange,
@@ -44,7 +43,6 @@ import type {
   HistoricalFinancialParams,
   IndicatorsParams,
   FinancialReport,
-  FinancialReportPeriod,
   ProfitForecast,
   IndexInfo,
   IndexTag,
@@ -255,8 +253,25 @@ export class MarketDataClient {
    */
   async getQuotes(symbols: Symbol[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
-    const indices = symbols.filter((s) => isIndexSymbol(s));
-    const stocks = symbols.filter((s) => !isIndexSymbol(s));
+    // 清洗脏代码（sh603986 / hk03986 等前缀混入 code 的历史数据）
+    const cleaned = symbols.map(sanitizeSymbol);
+    // A 股源只认个股/指数数字码：过滤 B 股（200/900）等，避免整批 Unknown
+    const aShareOk = cleaned.filter((s) => {
+      if (s.exchange === 'HK' || s.exchange === 'US' || s.exchange === 'OF' || s.exchange === 'TI' || s.exchange === 'EM') {
+        return true;
+      }
+      return /^(60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{4}|4\d{4}|92\d{4}|000\d{3}|399\d{3})$/.test(s.code);
+    });
+    if (aShareOk.length === 0) return [];
+    // 走 MethodCache 读穿（quote_snapshot），与 useQuotes/QuotesCache 共用同一领域表，
+    // 避免「门面直打 partition、策略声明却写了 TTL」的双真相。
+    return readThroughCache('getQuotes', [aShareOk], () => this.fetchQuotesPartitioned(aShareOk));
+  }
+
+  /** getQuotes 的真实网络路径：按指数/个股拆分 partition（不经缓存） */
+  private async fetchQuotesPartitioned(aShareOk: Symbol[]): Promise<Quote[]> {
+    const indices = aShareOk.filter((s) => isIndexSymbol(s));
+    const stocks = aShareOk.filter((s) => !isIndexSymbol(s));
     const partitionBy = (method: 'getQuotes' | 'getIndexQuotes', subset: Symbol[]) =>
       this.router.partition(
         method,
@@ -279,20 +294,50 @@ export class MarketDataClient {
   /**
    * K 线。指数/板块与个股在行情源里走不同端点（且指数无复权语义，
    * adjust 由指数端点自然忽略），这里按标的类型自动分流。
+   * 场内基金 / 期权无个股 K 线契约 → 静默空，避免 LogBox 刷屏。
    */
   async getKline(params: KlineParams): Promise<Candle[]> {
-    const method = isIndexSymbol(params.symbol) ? 'getIndexKline' : 'getKline';
-    return this.call(method, [params]);
+    const symbol = sanitizeSymbol(params.symbol);
+    if (isNonKlineSymbol(symbol)) return [];
+    const method = isIndexSymbol(symbol) ? 'getIndexKline' : 'getKline';
+    return this.call(method, [{ ...params, symbol }]);
   }
 
+  /**
+   * 复权因子。指数/板块无分红送转语义，直接短路返回空，
+   * 避免把指数代码送进个股 corporate-actions 端点触发必败请求。
+   * 场内基金 / 期权同样无复权因子。
+   */
   async getAdjustmentFactors(symbol: Symbol, from?: string, to?: string): Promise<AdjustmentFactor[]> {
-    return this.call('getAdjustmentFactors', [symbol, from, to]);
+    const s = sanitizeSymbol(symbol);
+    if (isIndexSymbol(s) || isNonKlineSymbol(s)) return [];
+    return this.call('getAdjustmentFactors', [s, from, to]);
   }
 
   // ---------- 估值 ----------
 
   async getValuations(symbols: Symbol[]): Promise<Valuation[]> {
-    return this.call('getValuations', [symbols]);
+    if (symbols.length === 0) return [];
+    // 上游 fuyao 限制 thscodes ≤100；内部自动分片，调用方无需关心
+    const CHUNK = 80;
+    const cleaned = symbols.map(sanitizeSymbol);
+    const out: Valuation[] = [];
+    for (let i = 0; i < cleaned.length; i += CHUNK) {
+      const batch = cleaned.slice(i, i + CHUNK);
+      try {
+        const rows = await this.router.partition(
+          'getValuations',
+          batch,
+          (s) => `${s.code}.${s.exchange}`,
+          (v) => `${v.symbol.code}.${v.symbol.exchange}`,
+          (parts) => [parts],
+        );
+        out.push(...rows);
+      } catch {
+        // 单批失败不拖垮其余
+      }
+    }
+    return out;
   }
 
   // ---------- 财务 ----------
@@ -332,7 +377,17 @@ export class MarketDataClient {
   }
 
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
-    return this.call('getIndexQuotes', [symbols]);
+    if (symbols.length === 0) return [];
+    // 与 getQuotes 一致走 partition：整包 invoke 时若含 BJ 等源不覆盖的段，
+    // capabilitySupports 会把整个调用裁掉 → attempted=0 返回空。
+    // partition 按单标的 canCall 拆分，SH/SZ 股指给 hithsa/fuyao，EM/BK 给 stock-sdk。
+    return this.router.partition(
+      'getIndexQuotes',
+      symbols,
+      (s) => `${s.code}.${s.exchange}`,
+      (q) => `${q.symbol.code}.${q.symbol.exchange}`,
+      (parts) => [parts],
+    );
   }
 
   async getIndexKline(params: KlineParams): Promise<Candle[]> {
@@ -923,14 +978,14 @@ export class MarketDataClient {
     setApiConfig({ ...getApiConfig(), sourceOrder: order });
   }
 
-  /** 设置 API Key（统一收敛到同花顺 HttpClient） */
+  /** 设置 API Key（统一收敛到 fuyao 同花顺源） */
   setApiKey(key: string): void {
-    HithsaHttpClient.setDefaultKey(key);
+    setUnifiedApiKey(key);
   }
 
   /** 回灌用户偏好 */
   applyUserPreferences(key?: string): Promise<void> {
-    if (key) HithsaHttpClient.setDefaultKey(key);
+    if (key) setUnifiedApiKey(key);
     return Promise.resolve();
   }
 
@@ -941,6 +996,11 @@ export class MarketDataClient {
   /** 清理过期的行情快照缓存 */
   async pruneQuotesCache(): Promise<void> {
     await QuotesCache.pruneExpired(QUOTES_MAX_AGE_MS);
+  }
+
+  /** 清理全部过期领域表 + method_cache（启动/回前台调用，防库无限膨胀） */
+  async pruneDomainCache(): Promise<void> {
+    await pruneMethodCache();
   }
 
   /** 设置主源（sourceOrder 置顶） */
@@ -957,7 +1017,7 @@ export function getDefaultClient(): MarketDataClient {
   return _defaultClient;
 }
 
-/** APP 全局唯一访问点，业务层统一从这里取数：import { marketData } from '@/api' */
+/** APP 全局唯一访问点，业务层统一从这里取数：import { marketData } from '@/data/api' */
 export const marketData: MarketDataClient = new MarketDataClient();
 
 export { defaultApiConfig };

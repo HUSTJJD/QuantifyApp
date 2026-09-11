@@ -1,34 +1,52 @@
 /**
- * 自选股 Tab（数据库驱动重设计）。
+ * 自选股 Tab（数据库驱动重设计 + mobile-surface-v1 密度升级）。
  *
- * 布局：顶部一行 = 搜索入口 + 管理入口（无大标题/无数据源小字）；
- * 分组 Tab 仅在确有自定义分组时出现；列表数据完全来自本地库
- * （quantify.db：自选扁平表 + 分组表），无任何内置示例兜底：
- * 空库时展示引导卡（一键搜索添加，添加后回到本页自动刷新）。
+ * - 单一 FlashList（去掉 ScrollView 嵌套 FlatList）
+ * - 行内 MiniDaySparkline + 信号 Tag
+ * - 右滑删除（gesture-handler Swipeable）
+ * - 分组顶区 GroupSummaryStrip
+ * - 骨架屏 / 引导型空态
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  Alert,
+} from 'react-native';
+import { FlashList } from '@shopify/flash-list';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useSignals } from '@/hooks/useSignals';
-import { loadWatchlistWithBackfill } from '@/repositories/WatchlistRepository';
-import type { WatchlistGroup } from '@/repositories/WatchlistRepository';
+import {
+  loadWatchlistWithBackfill,
+  isDynamicGroup,
+  removeFromWatchlist,
+} from '@/data/repositories/WatchlistRepository';
+import { userStore } from '@/data/db/UserStore';
+import type { WatchlistGroup } from '@/data/repositories/WatchlistRepository';
 import { toFullCode, displaySymbol } from '@/domain';
-import type { Symbol, Quote } from '@/api';
-import { spacing, fontSize, radius, fontWeight } from '@/theme';
+import type { Symbol, Quote } from '@/data/api';
+import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { GroupTabs } from './GroupTabs';
+import { CreateGroupSheet } from './CreateGroupSheet';
+import { GroupSummaryStrip } from './GroupSummaryStrip';
 import { SortToggle, type SortMode } from './SortToggle';
-import type { TradeSignal } from '@/quant/signals';
-import { Card, PriceText, ChangePct, Tag } from '@/components';
+import type { TradeSignal } from '@/domain';
+import { Card, PriceText, ChangePct, Tag, SkeletonRows, MiniDaySparkline } from '@/components';
+import { WatchRadarLine } from './WatchRadarLine';
+import { peekAddedPrice } from './addedPriceCache';
+import { getIndustryOf } from '@/quant/industryMap';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 
-/** 「自选」虚拟分组 id（内容 = 本地库扁平自选表） */
 const ALL_ID = '__all__';
 
-/** 对行情列表按排序模式排序 */
 function sortQuotes(quotes: Quote[], mode: SortMode): Quote[] {
   const arr = [...quotes];
   switch (mode) {
@@ -67,8 +85,8 @@ export function WatchlistTabScreen({
   const [activeId, setActiveId] = useState<string>(ALL_ID);
   const [refreshing, setRefreshing] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('default');
+  const [showCreate, setShowCreate] = useState(false);
 
-  /** 从数据库重读「自选列表 + 分组」并补齐旧数据缺失的指数/板块名字 */
   const loadMeta = useCallback(async () => {
     try {
       const { groups: gs, flat: wl } = await loadWatchlistWithBackfill();
@@ -82,16 +100,25 @@ export function WatchlistTabScreen({
     }
   }, []);
 
-  // 每次聚焦本页都重读一次（个股详情加自选后返回即可见，无需手动刷新）
   useFocusEffect(
     useCallback(() => {
       loadMeta().catch(() => setReady(true));
+      (async () => {
+        const list = (await loadWatchlistWithBackfill().catch(() => null))?.flat ?? [];
+        for (const s of list.slice(0, 40)) {
+          await getIndustryOf(s.code, s.exchange).catch(() => undefined);
+        }
+      })().catch(() => undefined);
     }, [loadMeta]),
   );
 
-  // 用户自建分组（含标的）才作为独立分段展示；旧的空「默认」分组不重复展示
   const extraGroups = useMemo(
-    () => groups.filter((g) => g.id !== 'default' && g.symbols.length > 0),
+    () =>
+      groups.filter((g) => {
+        if (g.id === 'default') return false;
+        if ((g.kind ?? 'static') !== 'static') return true;
+        return g.symbols.length > 0;
+      }),
     [groups],
   );
   const segments: WatchlistGroup[] = useMemo(() => {
@@ -100,15 +127,16 @@ export function WatchlistTabScreen({
   }, [flat, extraGroups]);
 
   const activeSeg = segments.find((s) => s.id === activeId) ?? segments[0];
-  const watchSymbols = activeSeg?.symbols ?? [];
+  const watchSymbols = useMemo(() => activeSeg?.symbols ?? [], [activeSeg]);
   const watchQuotes = useQuotes(watchSymbols, 'stock', focused);
   const { buys, sells } = useSignals();
 
   useEffect(() => {
-    if (!activeSeg || activeSeg.symbols.length > 0) return;
-    // 选中分组已无标的时回落「自选」（正常不会发生：空分组不展示）
-    if (activeSeg.id !== ALL_ID) setActiveId(ALL_ID);
-  }, [activeSeg]);
+    if (!activeSeg) return;
+    if (activeId !== ALL_ID && !segments.some((s) => s.id === activeId)) {
+      setActiveId(ALL_ID);
+    }
+  }, [segments, activeId, activeSeg]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -125,7 +153,6 @@ export function WatchlistTabScreen({
     return map;
   }, [buys, sells]);
 
-  // 本地库中的名字优先：行情缓存可能带旧（空）name，指数/板块回填后即时生效
   const nameByKey = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of watchSymbols) {
@@ -134,6 +161,37 @@ export function WatchlistTabScreen({
     return map;
   }, [watchSymbols]);
 
+  useEffect(() => {
+    const data = watchQuotes.data;
+    if (!data?.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = (await userStore.getWatchlist()) ?? [];
+        const byKey = new Map(saved.map((s) => [toFullCode(s), s]));
+        let dirty = false;
+        for (const q of data) {
+          if (!q.symbol.name) continue;
+          const k = toFullCode(q.symbol);
+          const cur = byKey.get(k);
+          if (cur && !cur.name) {
+            byKey.set(k, { ...cur, name: q.symbol.name });
+            dirty = true;
+          }
+        }
+        if (dirty && !cancelled) {
+          await userStore.setWatchlist([...byKey.values()]);
+          loadMeta().catch(() => undefined);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [watchQuotes.data, loadMeta]);
+
   const quotes = sortQuotes(
     (watchQuotes.data ?? []).map((q) => {
       const stored = q.symbol.name ? undefined : nameByKey.get(toFullCode(q.symbol));
@@ -141,18 +199,49 @@ export function WatchlistTabScreen({
     }),
     sortMode,
   );
+
+  const summary = useMemo(() => {
+    let up = 0;
+    let down = 0;
+    for (const q of quotes) {
+      const p = pctOf(q);
+      if (p > 0) up += 1;
+      else if (p < 0) down += 1;
+    }
+    const sigs = quotes.filter((q) => {
+      const s = signalByKey.get(toFullCode(q.symbol));
+      return s && s.side !== 'hold';
+    }).length;
+    return { count: quotes.length || watchSymbols.length, upCount: up, downCount: down, signalCount: sigs };
+  }, [quotes, watchSymbols.length, signalByKey]);
+
+  const onDeleteRow = useCallback(
+    async (symbol: Symbol) => {
+      try {
+        await removeFromWatchlist(symbol);
+        await loadMeta();
+      } catch {
+        Alert.alert('删除失败', '请稍后重试');
+      }
+    },
+    [loadMeta],
+  );
+
   const isEmpty = ready && watchSymbols.length === 0 && !watchQuotes.loading;
+  const emptyDynamic =
+    activeSeg && isDynamicGroup(activeSeg) && activeSeg.symbols.length === 0;
+  const emptyHint =
+    activeSeg?.kind === 'scan'
+      ? '暂无扫描命中：到「策略」页跑一轮扫描，结果会自动挂到这里'
+      : activeSeg?.kind === 'strategy'
+        ? '暂无该策略的买卖信号：策略启用并产生信号后会自动出现'
+        : activeSeg?.kind === 'condition'
+          ? '暂无符合条件的标的：放宽价格/涨跌幅，或先添加自选'
+          : null;
   const styles = makeStyles(colors);
 
-  return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />
-      }
-    >
-      {/* 顶部工具栏：搜索 + 管理（无页面大标题，无数据源角标） */}
+  const header = (
+    <View>
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.searchEntry}
@@ -167,39 +256,66 @@ export function WatchlistTabScreen({
         </TouchableOpacity>
       </View>
 
-      {/* 分组 Tab：仅当确有自定义分组时展示 */}
-      {segments.length > 1 && (
-        <GroupTabs
-          groups={segments}
-          activeId={activeSeg?.id ?? ALL_ID}
-          onSelect={setActiveId}
-        />
-      )}
+      <GroupTabs
+        groups={segments}
+        activeId={activeSeg?.id ?? ALL_ID}
+        onSelect={setActiveId}
+        onCreate={() => setShowCreate(true)}
+      />
 
-      {watchQuotes.error && <Text style={styles.errText}>行情加载失败：{watchQuotes.error}</Text>}
+      {ready && watchSymbols.length > 0 && (
+        <GroupSummaryStrip summary={summary} />
+      )}
 
       {quotes.length > 0 && (
         <View style={styles.toolRow}>
           <SortToggle mode={sortMode} onChange={setSortMode} />
         </View>
       )}
+    </View>
+  );
 
-      <FlatList
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <CreateGroupSheet
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(gid) => {
+          if (gid) setActiveId(gid);
+          loadMeta().catch(() => undefined);
+        }}
+      />
+
+      {watchQuotes.error && (
+        <Text style={styles.errText}>行情加载失败：{watchQuotes.error}</Text>
+      )}
+
+      <FlashList
         data={quotes}
         keyExtractor={(q) => toFullCode(q.symbol)}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <WatchRow
-            item={item}
-            signal={signalByKey.get(toFullCode(item.symbol))}
-            onPress={() => onOpen(item.symbol)}
-            colors={colors}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
           />
-        )}
+        }
+        ListHeaderComponent={header}
         ListEmptyComponent={
-          watchQuotes.loading ? (
-            <Text style={styles.hint}>加载中…</Text>
-          ) : isEmpty ? (
+          watchQuotes.loading && !ready ? (
+            <SkeletonRows rows={5} style={{ marginTop: spacing.md }} />
+          ) : watchQuotes.loading ? (
+            <SkeletonRows rows={3} style={{ marginTop: spacing.md }} />
+          ) : emptyDynamic ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>
+                {activeSeg?.name}（{activeSeg?.symbols.length}）
+              </Text>
+              <Text style={styles.emptyHint}>{emptyHint ?? '暂无标的，下拉可刷新'}</Text>
+            </Card>
+          ) : isEmpty && activeId === ALL_ID ? (
             <Card style={styles.emptyCard}>
               <Icon name={Icons.starOutline} size="xl" color="textSecondary" />
               <Text style={styles.emptyTitle}>还没有自选股票</Text>
@@ -215,47 +331,76 @@ export function WatchlistTabScreen({
             <Text style={styles.hint}>暂无行情数据，下拉刷新重试</Text>
           )
         }
+        renderItem={({ item }) => (
+          <WatchRow
+            item={item}
+            signal={signalByKey.get(toFullCode(item.symbol))}
+            onPress={() => onOpen(item.symbol)}
+            onDelete={() => onDeleteRow(item.symbol)}
+            colors={colors}
+          />
+        )}
       />
-    </ScrollView>
+    </View>
   );
 }
 
-/** 自选股行（含信号徽标）。顶层组件避免渲染期重建。 */
 function WatchRow({
   item,
   signal,
   onPress,
+  onDelete,
   colors,
 }: {
   item: Quote;
   signal?: TradeSignal;
   onPress: () => void;
+  onDelete: () => void;
   colors: ReturnType<typeof useAppTheme>['colors'];
 }): React.JSX.Element {
-  const chg = item.last - item.prevClose;
-  const pct = item.prevClose ? (chg / item.prevClose) * 100 : 0;
-  const up = chg >= 0;
+  const key = toFullCode(item.symbol);
+  const grace = item.last > 0 ? null : peekAddedPrice(key);
+  const last = item.last > 0 ? item.last : grace ?? 0;
+  const chg = last - item.prevClose;
+  const pct = item.prevClose && last > 0 ? (chg / item.prevClose) * 100 : 0;
   const styles = makeStyles(colors);
-  return (
-    <TouchableOpacity style={styles.row} onPress={onPress}>
-      <View style={styles.nameCol}>
-        <Text style={styles.name} numberOfLines={1}>
-          {displaySymbol(item.symbol, item.symbol.name)}
-        </Text>
-        {signal && signal.side !== 'hold' && (
-          <Tag text={signal.side === 'buy' ? '买' : '卖'} variant={signal.side === 'buy' ? 'buy' : 'sell'} />
-        )}
-      </View>
-      <PriceText value={item.last > 0 ? item.last : null} style={styles.price} />
-      <ChangePct pct={pct} style={styles.chg} />
+
+  const renderRightActions = () => (
+    <TouchableOpacity style={styles.swipeDel} onPress={onDelete} activeOpacity={0.85}>
+      <Text style={styles.swipeDelText}>删除</Text>
     </TouchableOpacity>
+  );
+
+  return (
+    <Swipeable
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      rightThreshold={40}
+    >
+      <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.75}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.nameCol}>
+            <Text style={styles.name} numberOfLines={1}>
+              {displaySymbol(item.symbol, item.symbol.name)}
+            </Text>
+            {signal && signal.side !== 'hold' && (
+              <Tag text={signal.side === 'buy' ? '买' : '卖'} variant={signal.side === 'buy' ? 'buy' : 'sell'} />
+            )}
+          </View>
+          <WatchRadarLine symbolKey={key} />
+        </View>
+        <MiniDaySparkline quote={last !== item.last ? { ...item, last } : item} width={52} height={26} />
+        <PriceText value={last > 0 ? last : null} style={styles.price} />
+        <ChangePct pct={pct} style={styles.chg} />
+      </TouchableOpacity>
+    </Swipeable>
   );
 }
 
 function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: spacing.md },
+    content: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
     topBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     searchEntry: {
       flex: 1,
@@ -271,12 +416,22 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     manageBtn: { paddingHorizontal: spacing.sm, height: 40, justifyContent: 'center' },
     manageText: { color: colors.primary, fontSize: fontSize.md },
 
-    toolRow: { marginTop: spacing.sm },
-    errText: { color: colors.down, fontSize: fontSize.sm, marginTop: spacing.sm },
-    hint: { color: colors.textSecondary, fontSize: fontSize.sm, textAlign: 'center', paddingVertical: spacing.lg },
+    toolRow: { marginTop: spacing.xs, marginBottom: spacing.sm },
+    errText: { color: colors.down, fontSize: fontSize.sm, marginTop: spacing.sm, paddingHorizontal: spacing.md },
+    hint: {
+      color: colors.textSecondary,
+      fontSize: fontSize.sm,
+      textAlign: 'center',
+      paddingVertical: spacing.lg,
+    },
 
     emptyCard: { marginTop: spacing.lg, alignItems: 'center', paddingVertical: spacing.xl },
-    emptyTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: fontWeight.bold as any, marginTop: spacing.sm },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: fontSize.md,
+      fontWeight: fontWeight.bold as any,
+      marginTop: spacing.sm,
+    },
     emptyHint: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 4 },
     emptyBtn: {
       flexDirection: 'row',
@@ -290,16 +445,25 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     emptyBtnIcon: { marginRight: spacing.xs },
     emptyBtnText: { color: '#fff', fontSize: fontSize.md, fontWeight: '600' },
 
-    nameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    nameCol: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
+      minHeight: layout.rowMinHeight,
       paddingVertical: spacing.sm,
+      gap: spacing.sm,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
     name: { color: colors.text, fontSize: fontSize.md, flexShrink: 1 },
-    price: { width: 90, textAlign: 'right' },
-    chg: { width: 76, textAlign: 'right' },
+    price: { width: 78, textAlign: 'right' },
+    chg: { width: 72, textAlign: 'right' },
+    swipeDel: {
+      width: 72,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.down,
+    },
+    swipeDelText: { color: '#fff', fontWeight: '600', fontSize: fontSize.md },
   });
 }

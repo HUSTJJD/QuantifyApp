@@ -10,8 +10,8 @@
  * 源上任何不在 88 个方法内的公开方法永远不会被路由到（如 StockSdkSource.getBoardQuotes）。
  * 这里把它们自动列出来，作为能力补录的输入。
  */
-import type { DataSourceMethod, MarketDataSource } from '@/api';
-import { BaseMarketDataSource } from '@/api/sources/BaseMarketDataSource';
+import type { DataSourceMethod, MarketDataSource } from '@/data/api';
+import { BaseMarketDataSource } from '@/data/api/sources/BaseMarketDataSource';
 import { ALL_METHODS } from './catalog';
 import { expectationOf, noteOf, type ExpectationKind } from './expectations';
 

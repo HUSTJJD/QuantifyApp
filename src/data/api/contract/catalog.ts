@@ -10,7 +10,7 @@
  * 完整性由类型强制：CatalogMap 是 DataSourceMethod 的全量映射，
  * 少一个方法、或 key 与 method 不对应，都直接编译报错。
  */
-import type { DataSourceMethod, MethodArgs, MethodResult } from '@/api';
+import type { DataSourceMethod, MethodArgs, MethodResult } from '@/data/api';
 
 /** 方法分组（比原 8 组多出扩展能力分组） */
 export type MethodGroupKey =

@@ -4,10 +4,10 @@
  * 各自独立资金/持仓/成交。
  * 持久化落 SQLite sim_account / sim_position / sim_order / sim_trade 表（profileId = scope）。
  */
-import type { Symbol } from '@/api';
+import type { Symbol } from '@/data/api';
 import type { SimAccount, Order, SimPosition, Trade, Side, OrderType } from './types';
-import { quantStore } from '@/db/QuantStore';
-import { storage } from '@/db/storage';
+import { quantStore } from '@/data/db/QuantStore';
+import { storage } from '@/data/db/storage';
 import {
   submitOrder as engineSubmit,
   settleOvernight,
@@ -15,7 +15,7 @@ import {
   type SubmitInput,
   type SubmitResult,
 } from './engine';
-import { simSymbolKey } from '@/db/QuantStore';
+import { simSymbolKey } from '@/data/db/QuantStore';
 
 const DEFAULT_SCOPE = '';
 const LAST_SETTLE_PREFIX = 'sim_last_settle_v1';
