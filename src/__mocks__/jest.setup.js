@@ -51,7 +51,7 @@ jest.mock('@op-engineering/op-sqlite', () => {
     };
 });
 
-const { closeDatabase } = require('@/db');
+const { closeDatabase } = require('../data/db');
 
 // react-test-renderer 在 node 环境需要最小 window/self polyfill
 // （否则报 window.dispatchEvent is not a function）。仅补齐组件渲染所需。

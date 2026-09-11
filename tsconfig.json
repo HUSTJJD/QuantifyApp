@@ -2,10 +2,19 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "customConditions": ["react-native-strict-api"],
-    // "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@/api": ["src/data/api"],
+      "@/api/*": ["src/data/api/*"],
+      "@/db": ["src/data/db"],
+      "@/db/*": ["src/data/db/*"],
+      "@/cache": ["src/data/cache"],
+      "@/cache/*": ["src/data/cache/*"],
+      "@/sync": ["src/data/sync"],
+      "@/sync/*": ["src/data/sync/*"],
+      "@/repositories": ["src/data/repositories"],
+      "@/repositories/*": ["src/data/repositories/*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],

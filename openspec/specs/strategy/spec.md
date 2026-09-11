@@ -2,7 +2,7 @@
 
 ## Purpose
 
-让用户用**可配置规则**表达买卖逻辑：选股条件 + 信号指标 + 风控，并可被信号引擎 / 回测 / 模拟盘复用。
+多因子框架：因子可注册、可调参，策略=因子规则组合（DSL）。代码独立于 `src/strategies/`。
 
 ## Requirements
 
@@ -19,20 +19,24 @@
 - 新建/编辑/删除档案后重启 App 仍在
 - `enabled=false` 的策略不产出信号
 
-### R2 信号内核可组合
+### R2 信号内核可组合（多因子框架）
 
 **规则**
-- 内置单指标策略：MA 金叉死叉、MACD、RSI、突破、布林、量价背离
-- **组合策略**（`quant/composite.ts`）：多指标条件 AND/OR
-  - 条件：数值比较 / 指标比较 / 交叉 / 量比
-  - 预置：趋势确认买入、MACD 趋势、超卖反弹、突破回踩
-- 多策略加权合并为最终 `TradeSignal`
-- 单策略异常不影响整体
+- **因子注册表**（`src/strategies/factors/`）：ma_cross / macd / rsi / volume_ratio / breakout / bollinger / ma_trend
+  - 每个因子输出 `score[-1,1]` + reason + 可选 triggered
+  - 每个因子带 `FactorParamDef[]`，可调参
+- **规则 DSL**：score 比较 / triggered 事件 / cross 交叉，AND/OR 组合
+- **引擎**：`evaluateStrategy(template, candles)`
+- **内置模板**（3 个精选，默认 trend_confirm）：
+  - 趋势确认：MA金叉 + MACD偏多 + RSI<60 + 放量
+  - 超卖反弹：RSI超卖 + 放量 + 均线不空头
+  - 突破动量：N日新高 + 强放量 + 均线多头
+- 多模板加权合并为最终 `TradeSignal`
 
 **验收**
-- 只开 MA 金叉时，信号只反映该策略
-- 关闭全部策略 → `hold`
+- 默认只启用 trend_confirm
 - 「MA金叉 AND 放量」在金叉+放量时触发，仅金叉不触发
+- 新增因子只需在注册表加一个 FactorDef
 
 ### R3 选股规则
 

@@ -6,6 +6,17 @@ module.exports = {
     'node_modules/(?!((react-native|react-native-svg|react-native-screens|@react-native|@react-navigation|react-native-vector-icons|react-native-safe-area-context|stock-sdk)/))',
   ],
   moduleNameMapper: {
+    // 数据层迁至 src/data/，用别名保持旧 import 路径可用
+    '^@/api$': '<rootDir>/src/data/api',
+    '^@/api/(.*)$': '<rootDir>/src/data/api/$1',
+    '^@/db$': '<rootDir>/src/data/db',
+    '^@/db/(.*)$': '<rootDir>/src/data/db/$1',
+    '^@/cache$': '<rootDir>/src/data/cache',
+    '^@/cache/(.*)$': '<rootDir>/src/data/cache/$1',
+    '^@/sync$': '<rootDir>/src/data/sync',
+    '^@/sync/(.*)$': '<rootDir>/src/data/sync/$1',
+    '^@/repositories$': '<rootDir>/src/data/repositories',
+    '^@/repositories/(.*)$': '<rootDir>/src/data/repositories/$1',
     // 解析 @/ 别名到 src/，与 metro/babel 保持一致
     '^@/(.*)$': '<rootDir>/src/$1',
     // 原生存储模块在 node 测试环境用 CJS mock 替代
