@@ -13,9 +13,10 @@
  * 用户在编辑器改完即时生效（每次 tick 重读档案）。
  */
 import { marketData } from '@/data/api';
-import type { Candle, Quote, Symbol } from '@/data/api';
+import type { Candle, Exchange, Quote, Symbol } from '@/data/api';
 import { quoteFeed } from '@/data/QuoteFeed';
 import { getGroups } from '@/data/repositories/WatchlistRepository';
+import { quantStore } from '@/data/db/QuantStore';
 import { createAccountRepo, type AccountRepo, type SimAccount } from '@/simulation';
 import { toFullCode } from '@/domain';
 import {
@@ -81,8 +82,28 @@ export function strategyAccountRepo(profileId: string): AccountRepo {
   return repoOf(profileId);
 }
 
-/** 取自选股池（去重）。 */
-async function resolvePool(profile: StrategyProfile): Promise<Symbol[]> {
+/** 最近一次扫描快照池（含过期时无条件回落自选，保证策略池永远非空）。 */
+async function resolveScanPool(): Promise<Symbol[]> {
+  const snaps = await quantStore().listScanSnapshots(1);
+  const snap = snaps[0];
+  if (!snap?.id) return [];
+  // 快照超过 24h 视为过期：扫描命中会迅速失效，避免用陈旧候选开仓
+  if (Date.now() - snap.createdAt > 24 * 3600_000) return [];
+  const hits = await quantStore().listScanHits(snap.id);
+  const seen = new Set<string>();
+  const out: Symbol[] = [];
+  for (const h of hits) {
+    if (!h.code || !h.exchange) continue;
+    const s: Symbol = { code: h.code, exchange: h.exchange as Exchange, name: h.name || undefined };
+    const k = toFullCode(s);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+async function resolveWatchlistPool(): Promise<Symbol[]> {
   const groups = await getGroups();
   const seen = new Set<string>();
   const out: Symbol[] = [];
@@ -94,10 +115,21 @@ async function resolvePool(profile: StrategyProfile): Promise<Symbol[]> {
       out.push(s);
     }
   }
-  if (profile.selection.universe !== 'watchlist') {
-    // v0 只支持自选股池；未来接入全市场选股时在此扩展
-  }
   return out;
+}
+
+/**
+ * 解析策略选股池。
+ *  - watchlist：全部自选分组合并去重；
+ *  - scan：最近一次扫描快照命中（超 24h 或无快照时回落自选，避免空池卡死自动交易）。
+ */
+export async function resolvePool(profile: StrategyProfile): Promise<Symbol[]> {
+  if (profile.selection.universe === 'scan') {
+    const pool = await resolveScanPool();
+    if (pool.length > 0) return pool;
+    return resolveWatchlistPool();
+  }
+  return resolveWatchlistPool();
 }
 
 /** 带缓存的 K 线拉取（同周期 60s 内复用）。 */
@@ -134,7 +166,7 @@ async function runProfile(profile: StrategyProfile, feedQuotes?: Quote[] | null)
   if (!account.initialized) return;
 
   const held = new Set(account.positions.map((p) => toFullCode(p.symbol)));
-  const pool = profile.selection.universe === 'watchlist' ? await resolvePool(profile) : [];
+  const pool = await resolvePool(profile);
   const quoteSyms = Array.from(new Set([...pool.map((s) => toFullCode(s)), ...held]));
 
   // 行情：优先复用 QuoteFeed 本轮刚推送的快照（5s 一轮已经批量拉过一次），

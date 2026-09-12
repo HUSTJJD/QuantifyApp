@@ -10,16 +10,18 @@ import { STRATEGIES } from '@/quant/strategies';
 import {
   SESSION_LABELS,
   PERIOD_LABELS,
+  UNIVERSE_LABEL,
   paramGroupsOf,
   createProfileFromTemplate,
   type SignalPeriod,
   type TradeSession,
+  type Universe,
   type StrategyProfile,
 } from '@/quant/profile';
 import { getProfiles, getProfile, upsertProfile } from '@/quant/profileStore';
 import { spacing, fontSize, radius, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { Card, Section, Tag } from '@/components';
+import { Card, Section } from '@/components';
 
 const RATIO_OPTIONS = [
   { label: '1/4', value: 0.25 },
@@ -204,9 +206,28 @@ export function StrategyEditScreen({
         {/* 选股标准 */}
         <Section title="选股标准" />
         <Card padded={false}>
-          <Row label="股票池" last hint="当前在自选股列表中选股（全市场选股模型将在后续版本接入）">
-            <Tag text="自选股" variant="neutral" color={colors.info} />
-          </Row>
+          {draft && (
+            <Block
+              label="股票池"
+              hint={
+                draft.selection.universe === 'scan'
+                  ? '使用最近一次全市场扫描快照命中（超 24h 自动回落自选）'
+                  : '在自选股列表中选股'
+              }
+            >
+              <View style={styles.chipWrap}>
+                {(Object.keys(UNIVERSE_LABEL) as Universe[]).map((u) => (
+                  <ChoiceChip
+                    key={u}
+                    label={UNIVERSE_LABEL[u]}
+                    active={draft.selection.universe === u}
+                    onPress={() => patch((d) => ({ ...d, selection: { ...d.selection, universe: u } }))}
+                    colors={colors}
+                  />
+                ))}
+              </View>
+            </Block>
+          )}
           {draft && (
             <>
               <Row label="股价上限（元）" hint="0 = 不限">
