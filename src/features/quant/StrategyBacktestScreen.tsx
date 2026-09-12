@@ -27,8 +27,9 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, LineGraphView } from '@/components';
 
 const HS300: Symbol = { code: '000300', exchange: 'SH', name: '沪深300' };
-const POOL_CAP = 6;
+const POOL_CAP = 12;
 const BAR_COUNT = 320;
+const SLIPPAGE_OPTIONS = [0, 5, 10];
 
 interface Row {
   symbol: Symbol;
@@ -88,6 +89,8 @@ export function StrategyBacktestScreen({
   const [scanNote, setScanNote] = useState('');
   const [scanTop, setScanTop] = useState<OptimizeEntry[]>([]);
   const [applying, setApplying] = useState<string | null>(null);
+  const [slippageBp, setSlippageBp] = useState(0);
+  const [initCash, setInitCash] = useState(100_000);
 
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -117,13 +120,14 @@ export function StrategyBacktestScreen({
         return;
       }
       const out: Row[] = [];
-      let initCash = 100_000;
+      let cash0 = 100_000;
       try {
         const { getAppPrefs } = await import('@/settings/appPrefs');
-        initCash = (await getAppPrefs()).defaultInitCash;
+        cash0 = (await getAppPrefs()).defaultInitCash;
       } catch {
         // 默认 10 万
       }
+      setInitCash(cash0);
       for (const symbol of capped) {
         try {
           // 可信链路：不复权 + 本地因子，除权日事件调整现金/股数
@@ -137,10 +141,12 @@ export function StrategyBacktestScreen({
             out.push({ symbol, ok: false, reason: prepared.reason ?? '历史数据不足' });
           } else {
             const result = runBacktest(strategyOfProfile(p), prepared.candles, {
-              initCash,
+              initCash: cash0,
               positionRatio: p.trade.positionRatio,
               exit: p.exit,
               corporateActions: series.factors,
+              cost: { slippageBp },
+              execution: 'nextOpen',
             });
             out.push({ symbol, ok: true, result, candles: prepared.candles, adjustNote: series.note });
           }
@@ -150,11 +156,11 @@ export function StrategyBacktestScreen({
         setRows([...out]);
       }
       setNote(
-        `样本：自选前 ${capped.length} 只 · 近 ${BAR_COUNT} 根 · 不复权+除权事件回放${capped.length < pool.length ? `（另有 ${pool.length - capped.length} 只未参与）` : ''}`,
+        `样本：自选前 ${capped.length} 只 · 近 ${BAR_COUNT} 根 · 不复权+除权 · 次日开盘成交 · 滑点 ${slippageBp}bp${capped.length < pool.length ? `（另有 ${pool.length - capped.length} 只未参与）` : ''}`,
       );
       setRunning(false);
     })().catch(() => setRunning(false));
-  }, [strategyId]);
+  }, [strategyId, slippageBp]);
 
   const loadDetail = useCallback(
     async (row: Row) => {
@@ -188,7 +194,7 @@ export function StrategyBacktestScreen({
         const points = benchCandles.length > 0 ? alignByDate(result.equity, candles, benchCandles) : [];
         const benchMetrics = points.length >= 2 ? computeBenchmarkMetrics(points) : null;
         const walk = walkForward(strategyOfProfile(profile), candles, {
-          initCash: 100_000,
+          initCash,
           positionRatio: profile.trade.positionRatio,
           exit: profile.exit,
           trainRatio: 0.7,
@@ -207,7 +213,7 @@ export function StrategyBacktestScreen({
         setDetailLoading(false);
       }
     },
-    [profile],
+    [profile, initCash],
   );
 
   // 默认选中第一条成功结果
@@ -236,7 +242,7 @@ export function StrategyBacktestScreen({
         {
           metric: 'totalReturnPct',
           topN: 5,
-          initCash: 100_000,
+          initCash,
           positionRatio: profile.trade.positionRatio,
           exit: profile.exit,
         },
@@ -247,7 +253,7 @@ export function StrategyBacktestScreen({
     } finally {
       setScanning(false);
     }
-  }, [profile, detail]);
+  }, [profile, detail, initCash]);
 
   const applyParams = useCallback(
     async (params: Record<string, number>) => {
@@ -295,6 +301,21 @@ export function StrategyBacktestScreen({
               止盈 {profile.exit.takeProfitPct || '关'}% · 止损 {profile.exit.stopLossPct || '关'}% · 移动止损{' '}
               {profile.exit.trailingPct || '关'}% · 仓位 {(profile.trade.positionRatio * 100).toFixed(0)}%
             </Text>
+            <View style={styles.slipRow}>
+              <Text style={styles.slipLabel}>滑点</Text>
+              {SLIPPAGE_OPTIONS.map((bp) => (
+                <TouchableOpacity
+                  key={bp}
+                  style={[styles.slipChip, slippageBp === bp && styles.slipChipOn]}
+                  onPress={() => setSlippageBp(bp)}
+                >
+                  <Text style={[styles.slipText, slippageBp === bp && styles.slipTextOn]}>
+                    {bp === 0 ? '无' : `${bp}bp`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={[styles.desc, { flex: 1, textAlign: 'right' }]}>次日开盘成交</Text>
+            </View>
 
             <Card style={styles.summary}>
               <Text style={styles.summaryTitle}>
@@ -587,6 +608,23 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     headerTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: fontWeight.bold as any },
     title: { color: colors.text, fontSize: fontSize.xl, fontWeight: fontWeight.heavy as any },
     desc: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 4, lineHeight: 16 },
+    slipRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginTop: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+    slipLabel: { color: colors.textSecondary, fontSize: fontSize.xs },
+    slipChip: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceAlt,
+    },
+    slipChipOn: { backgroundColor: colors.primary },
+    slipText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '600' },
+    slipTextOn: { color: '#fff' },
     centerText: { color: colors.textSecondary, fontSize: fontSize.sm, textAlign: 'center', paddingVertical: spacing.xl },
 
     summary: { marginTop: spacing.md },

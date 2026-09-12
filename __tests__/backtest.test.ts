@@ -267,3 +267,40 @@ describe('除权事件（不复权 + corporateActions）', () => {
     expect(r.corpEvents).toEqual([]);
   });
 });
+
+describe('execution nextOpen', () => {
+  it('信号当根不成交，次日开盘成交', () => {
+    // bar0 close=105 触发 buy；nextOpen 应在 bar1 的 open 成交
+    const cs: Candle[] = [
+      { datetime: 0, open: 100, high: 106, low: 99, close: 105, volume: 1, amount: 1 },
+      { datetime: 86400_000, open: 110, high: 111, low: 109, close: 110, volume: 1, amount: 1 },
+      { datetime: 86400_000 * 2, open: 110, high: 111, low: 109, close: 110, volume: 1, amount: 1 },
+    ];
+    const alwaysBuy: Strategy = {
+      id: 'ab',
+      label: 'ab',
+      enabledByDefault: true,
+      evaluate: (c) => {
+        const last = c[c.length - 1];
+        return last.close >= 105 ? { side: 'buy', reason: '', strength: 2 } : { side: 'hold', reason: '', strength: 0 };
+      },
+    };
+    const closeExec = runBacktest(alwaysBuy, cs, { initCash: 100_000, execution: 'close', cost: { slippageBp: 0 } });
+    const nextExec = runBacktest(alwaysBuy, cs, { initCash: 100_000, execution: 'nextOpen', cost: { slippageBp: 0 } });
+    const closeBuy = closeExec.trades.find((t) => t.side === 'buy');
+    const nextBuy = nextExec.trades.find((t) => t.side === 'buy');
+    expect(closeBuy?.index).toBe(0);
+    expect(closeBuy?.price).toBeCloseTo(105, 5);
+    expect(nextBuy?.index).toBe(1);
+    expect(nextBuy?.price).toBeCloseTo(110, 5);
+  });
+
+  it('滑点买入价更高', () => {
+    const cs = series([100, 105, 105, 105]);
+    const withSlip = runBacktest(custom, cs, { cost: { slippageBp: 100 }, execution: 'close' });
+    const noSlip = runBacktest(custom, cs, { cost: { slippageBp: 0 }, execution: 'close' });
+    const b1 = withSlip.trades.find((t) => t.side === 'buy');
+    const b0 = noSlip.trades.find((t) => t.side === 'buy');
+    if (b1 && b0) expect(b1.price).toBeGreaterThan(b0.price);
+  });
+});

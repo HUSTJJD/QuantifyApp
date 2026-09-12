@@ -267,7 +267,10 @@ export function AppNavigator(): React.JSX.Element {
       </Stack.Screen>
       <Stack.Screen name="Backtest">
         {({ navigation }: { navigation: RootNav }) => (
-          <BacktestScreen onBack={() => safeGoBack(navigation)} />
+          <BacktestScreen
+            onBack={() => safeGoBack(navigation)}
+            onOpenStrategyBacktest={(strategyId) => navigation.navigate('StrategyBacktest', { strategyId })}
+          />
         )}
       </Stack.Screen>
       <Stack.Screen name="Scanner">

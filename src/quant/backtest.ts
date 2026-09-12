@@ -99,6 +99,12 @@ export interface BacktestOptions {
    * 持仓跨过除权日时自动调整现金与股数。前复权序列不要传。
    */
   corporateActions?: AdjustmentFactorInput[];
+  /**
+   * 成交时机：
+   * - close（默认）：信号当根收盘成交（偏乐观，兼容旧行为）
+   * - nextOpen：信号次日开盘成交（更贴近实盘，降低前视乐观）
+   */
+  execution?: 'close' | 'nextOpen';
 }
 
 /** 计算单笔交易总费用（佣金 + 印花税 + 过户费），佣金取 max(最低, 比例) */
@@ -268,6 +274,9 @@ export function runBacktest(
   let totalFees = 0;
   const appliedCorp = new Set<number>();
   const firstBarTime = candles.length > 0 ? timeOf(candles[0]) : 0;
+  const execution = opts.execution ?? 'close';
+  /** nextOpen 模式：上一 bar 信号留到本 bar 开盘执行 */
+  let pendingSide: Exclude<SignalSide, 'hold'> | null = null;
 
   for (let i = 0; i < candles.length; i++) {
     // 除权事件先于当日信号/撮合：开盘前已调整持仓
@@ -288,6 +297,41 @@ export function runBacktest(
       applyCorpActionsAtBar(candles[i], firstBarTime, corpActions, appliedCorp, dummy, []);
     }
 
+    // --- nextOpen：先用昨日信号在本 bar 开盘撮合 ---
+    if (execution === 'nextOpen' && pendingSide && i > 0) {
+      const openPx = candles[i].open > 0 ? candles[i].open : candles[i].close;
+      if (pendingSide === 'buy' && shares === 0 && cash > 0) {
+        const price = openPx * (1 + slip);
+        const budget = cash * positionRatio;
+        const estFeePerShare =
+          calcFee(price, 'buy', cost) / Math.max(1, Math.floor(budget / price / lotSize) * lotSize || 1);
+        const raw = Math.floor(budget / (price + estFeePerShare) / lotSize) * lotSize;
+        if (raw > 0) {
+          const amount = raw * price;
+          const fee = calcFee(amount, 'buy', cost);
+          if (amount + fee <= cash) {
+            cash -= amount + fee;
+            shares = raw;
+            avgCost = price;
+            peak = price;
+            totalFees += fee;
+            trades.push({ index: i, time: timeOf(candles[i]), side: 'buy', price, shares: raw, fee, cashAfter: cash });
+          }
+        }
+      } else if (pendingSide === 'sell' && shares > 0) {
+        const price = openPx * (1 - slip);
+        const amount = shares * price;
+        const fee = calcFee(amount, 'sell', cost);
+        cash += amount - fee;
+        totalFees += fee;
+        trades.push({ index: i, time: timeOf(candles[i]), side: 'sell', price, shares, fee, cashAfter: cash });
+        shares = 0;
+        avgCost = 0;
+        peak = 0;
+      }
+      pendingSide = null;
+    }
+
     const ctx: StrategyContext = {};
     const signal = strategy.evaluate(candles.slice(0, i + 1), ctx);
     const rawPrice = candles[i].close;
@@ -303,7 +347,9 @@ export function runBacktest(
       }
     }
 
-    if (side === 'buy' && shares === 0 && cash > 0) {
+    if (execution === 'nextOpen') {
+      if (side === 'buy' || side === 'sell') pendingSide = side;
+    } else if (side === 'buy' && shares === 0 && cash > 0) {
       const price = rawPrice * (1 + slip);
       const budget = cash * positionRatio;
       // 估算费用后可买股数：budget / (price + 单股费用)
