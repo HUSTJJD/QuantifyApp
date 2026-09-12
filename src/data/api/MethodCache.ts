@@ -68,7 +68,7 @@ export const METHOD_CACHE_POLICIES: Partial<Record<DataSourceMethod, MethodCache
   getDragonTigerStockStats: { ttlMs: 30 * 60_000, store: 'domain' },
 
   // ---- v6 领域表：财务 / 估值 / 分红 ----
-  getValuations: { ttlMs: 60_000, store: 'domain' },
+  getValuations: { ttlMs: 30 * 60_000, store: 'domain' },
   getFinancials: { ttlMs: 12 * 3600_000, store: 'domain' },
   getIncomeStatements: { ttlMs: 12 * 3600_000, store: 'domain' },
   getBalanceSheets: { ttlMs: 12 * 3600_000, store: 'domain' },
@@ -381,20 +381,37 @@ async function readDomain(
       const tag = (args[0] as string | undefined) ?? 'industry';
       const rows = await domainCache().listIndexCatalog(tag, now);
       if (rows.length === 0) return null;
-      return rows.map((r) => ({
-        symbol: { code: s(r.code), exchange: 'TI' as Symbol['exchange'] },
-        name: s(r.name),
-      }));
+      return rows.map((r) => {
+        const code = s(r.code);
+        // BKxxxx = 东财板块 → EM；88xxxx = 同花顺板块指数 → TI
+        const exchange = /^BK\d+$/i.test(code)
+          ? ('EM' as Symbol['exchange'])
+          : ('TI' as Symbol['exchange']);
+        return {
+          symbol: { code, exchange },
+          name: s(r.name),
+        };
+      });
     }
     case 'getIndexConstituents': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
       const rows = await domainCache().listIndexConstituents(toFullCode(sym), now);
       if (rows.length === 0) return null;
-      return rows.map((r) => ({
-        symbol: { code: s(r.code), exchange: 'SH' as Symbol['exchange'] },
-        name: s(r.name),
-      }));
+      return rows.map((r) => {
+        const code = s(r.code);
+        // 按代码推断交易所：000/001/002/003→SZ，6→SH，不可一律 SH
+        // （硬编码 SH 会把 000088.SZ 标成 SH，isIndexSymbol 误判为上证指数）
+        const exchange = /^6/.test(code)
+          ? ('SH' as Symbol['exchange'])
+          : /^(000|001|002|003|300)/.test(code)
+            ? ('SZ' as Symbol['exchange'])
+            : ('SH' as Symbol['exchange']);
+        return {
+          symbol: { code, exchange },
+          name: s(r.name),
+        };
+      });
     }
     case 'getHotStockList':
     case 'getSkyrocketList': {

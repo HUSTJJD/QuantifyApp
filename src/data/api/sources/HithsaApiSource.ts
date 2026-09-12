@@ -19,10 +19,12 @@ import { BaseMarketDataSource } from './BaseMarketDataSource';
 import type {
   AdjustmentFactor,
   AnomalyStock,
+  AssetType,
   Candle,
   DragonTigerList,
   DragonTigerStock,
   DragonTigerHotMoney,
+  Exchange,
   FundHolder,
   FundHolding,
   FundNav,

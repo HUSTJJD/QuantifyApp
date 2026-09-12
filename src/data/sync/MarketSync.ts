@@ -5,8 +5,8 @@
  *  1. syncTickers()           —— 拉全市场标的清单入本地 tickers 表；
  *  2. syncKlineIncremental()  —— 对全市场标的增量同步 K 线：
  *        - 已同步且未到刷新间隔（MIN_SYNC_INTERVAL）的标的跳过；
- *        - 已同步但本地最新 bar 落后于今天（跨日）时，只拉最近 count 根增量写库；
- *        - 未同步过的标的拉全量 count 根；
+ *        - 已同步但本地最新 bar 落后于今天（跨日）时，只拉最近 INCREMENTAL_COUNT 根增量写库；
+ *        - 本地无任何 K 线的标的拉 FULL_HISTORY_COUNT（约 3 年日线）；
  *        - 每标的完成后记录 sync_state.lastSyncMs（成功防抖，失败不计）。
  *  3. syncDaily()             —— 每日增量入口（周期=day）。
  *
@@ -36,6 +36,12 @@ export const SYNC_ASSET_TYPES = ['a-share', 'fund-etf', 'fund-lof'] as const;
 
 /** 每次增量拉取的 K 线根数（日线：约 2 个交易月，覆盖跨周/节假日） */
 export const INCREMENTAL_COUNT = 60;
+
+/**
+ * 首次全量拉取根数：约 3 年日线（A 股年均约 243 个交易日）。
+ * 未同步过的标的用这个值，避免只存 60 根导致回测/指标历史不足。
+ */
+export const FULL_HISTORY_COUNT = 750;
 
 export interface SyncProgress {
   total: number;
@@ -118,7 +124,7 @@ async function resolveStartCandle(symbol: Symbol, period: KlinePeriod): Promise<
 /**
  * 增量同步全市场 K 线。
  * @param period 周期（默认 day）
- * @param count 每次拉取根数（未同步标的全量首拉 / 已同步标的增量）
+ * @param count 已有历史时每次拉取根数（增量）；首次无本地数据时用 FULL_HISTORY_COUNT
  * @param onProgress 进度回调（UI 展示用）
  */
 export async function syncKlineIncremental(
@@ -164,7 +170,12 @@ export async function syncKlineIncremental(
         continue;
       }
 
-      const candles = await marketData.getKline({ symbol, period, count });
+      const candles = await marketData.getKline({
+        symbol,
+        period,
+        // 本地无任何 K 线 = 首次全量（约 3 年）；已有历史则只补最近增量
+        count: latest ? count : FULL_HISTORY_COUNT,
+      });
       if (candles && candles.length > 0) {
         await database().saveCandles(symbol, period, candles);
       }
@@ -222,10 +233,43 @@ export async function syncTickers(onDone?: (n: number) => void): Promise<number>
   return n;
 }
 
-/** 每日增量入口：同步标的库 + 日 K 增量 */
+/** 每日增量入口：同步标的库 + 日 K 增量 + 估值快照 */
 export async function syncDaily(onProgress?: (p: SyncProgress) => void): Promise<SyncResult> {
   await syncTickers();
-  return syncKlineIncremental('day', INCREMENTAL_COUNT, onProgress);
+  const res = await syncKlineIncremental('day', INCREMENTAL_COUNT, onProgress);
+  // 估值（PE/PB）不阻塞 K 线结果；失败仅 warn
+  try {
+    await syncValuations();
+  } catch (e) {
+    log.warn?.('估值同步失败', e);
+  }
+  return res;
+}
+
+/**
+ * 全市场个股估值快照写入本地缓存（PE/PB 等）。
+ * 成分股列表等页面优先读缓存，减少每次打开都打上游。
+ */
+export async function syncValuations(chunk = 80): Promise<number> {
+  const store = new MarketMetaStore();
+  const tickers = (await store.getTickers()).filter((t) => isSyncableTicker(t.symbol));
+  if (tickers.length === 0) return 0;
+  let n = 0;
+  for (let i = 0; i < tickers.length; i += chunk) {
+    const batch = tickers.slice(i, i + chunk);
+    const symbols = batch.map((t) => ({
+      code: t.symbol.split('.')[1] ?? t.symbol,
+      exchange: (t.symbol.split('.')[0] as Symbol['exchange']) ?? 'SH',
+    }));
+    try {
+      const vals = await marketData.getValuations(symbols);
+      n += vals.length;
+    } catch (e) {
+      log.warn?.(`估值分片失败 i=${i}`, e);
+    }
+  }
+  log.info?.('估值同步完成', { requested: tickers.length, got: n });
+  return n;
 }
 
 /** 是否同一交易日（按中国时区粗略比较 ymd） */

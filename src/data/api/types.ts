@@ -15,8 +15,8 @@
 /** 市场分类 */
 export type Market = 'A' | 'HK' | 'US';
 
-/** 交易所 / 资产后缀 */
-export type Exchange = 'SH' | 'SZ' | 'BJ' | 'HK' | 'TI' | 'OF' | 'US';
+/** 交易所 / 市场段。EM = 东方财富板块（BKxxxx，走 stock-sdk board.*，无 thscode） */
+export type Exchange = 'SH' | 'SZ' | 'BJ' | 'HK' | 'TI' | 'OF' | 'US' | 'EM';
 
 /** 资产类别 */
 export type AssetType =

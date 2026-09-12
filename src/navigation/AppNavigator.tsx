@@ -80,6 +80,15 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 type RootNav = NativeStackNavigationProp<RootStackParamList>;
 type TabNav = BottomTabNavigationProp<MainTabParamList>;
 
+/** 安全返回：栈底时回落到 Tabs，避免 GO_BACK 未处理警告 */
+function safeGoBack(navigation: NativeStackNavigationProp<RootStackParamList>): void {
+  if (navigation.canGoBack()) {
+    navigation.goBack();
+  } else {
+    navigation.navigate('Tabs');
+  }
+}
+
 /** 底部导航栏 5 tab 定义：行情/自选/信号/模拟盘/我的 */
 const TABS: { key: keyof MainTabParamList; title: string; icon: string }[] = [
   { key: 'Main', title: '行情', icon: Icons.home },
@@ -192,20 +201,20 @@ export function AppNavigator(): React.JSX.Element {
         {({ navigation }: { navigation: RootNav }) => (
           <WatchlistScreen
             onOpen={(symbol) => navigation.navigate('Detail', { symbol })}
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="Asset">
         {({ navigation }: { navigation: RootNav }) => (
-          <AssetScreen onBack={() => navigation.goBack()} />
+          <AssetScreen onBack={() => safeGoBack(navigation)} />
         )}
       </Stack.Screen>
       <Stack.Screen name="Detail">
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['Detail'] } }) => (
           <StockDetailScreen
             symbol={route.params.symbol}
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onTrade={(symbol, lastPrice) => navigation.navigate('Trade', { symbol, lastPrice })}
             onOpenSymbol={(s) => navigation.push('Detail', { symbol: s })}
           />
@@ -216,14 +225,14 @@ export function AppNavigator(): React.JSX.Element {
           <TradeScreen
             symbol={route.params.symbol}
             lastPrice={route.params.lastPrice}
-            onDone={() => navigation.goBack()}
+            onDone={() => safeGoBack(navigation)}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="Settings">
         {({ navigation }: { navigation: RootNav }) => (
           <SettingsScreen
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onOpenDebug={() => navigation.navigate('DebugLog')}
             onOpenApiStats={() => navigation.navigate('ApiStats')}
           />
@@ -231,31 +240,31 @@ export function AppNavigator(): React.JSX.Element {
       </Stack.Screen>
       <Stack.Screen name="DebugLog">
         {({ navigation }: { navigation: RootNav }) => (
-          <DebugLogScreen onBack={() => navigation.goBack()} />
+          <DebugLogScreen onBack={() => safeGoBack(navigation)} />
         )}
       </Stack.Screen>
       <Stack.Screen name="ApiStats">
         {({ navigation }: { navigation: RootNav }) => (
           <ApiStatsScreen
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onOpenTest={(sourceId) => navigation.navigate('SourceTest', { sourceId })}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="SourceTest">
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['SourceTest'] } }) => (
-          <SourceTestScreen sourceId={route.params.sourceId} onBack={() => navigation.goBack()} />
+          <SourceTestScreen sourceId={route.params.sourceId} onBack={() => safeGoBack(navigation)} />
         )}
       </Stack.Screen>
       <Stack.Screen name="Backtest">
         {({ navigation }: { navigation: RootNav }) => (
-          <BacktestScreen onBack={() => navigation.goBack()} />
+          <BacktestScreen onBack={() => safeGoBack(navigation)} />
         )}
       </Stack.Screen>
       <Stack.Screen name="Scanner">
         {({ navigation }: { navigation: RootNav }) => (
           <ScannerScreen
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onOpenDetail={(symbol) => navigation.navigate('Detail', { symbol })}
           />
         )}
@@ -263,7 +272,7 @@ export function AppNavigator(): React.JSX.Element {
       <Stack.Screen name="Workflow">
         {({ navigation }: { navigation: RootNav }) => (
           <WorkflowScreen
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onOpenDetail={(symbol) => navigation.navigate('Detail', { symbol })}
           />
         )}
@@ -272,7 +281,7 @@ export function AppNavigator(): React.JSX.Element {
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['StrategyEdit'] } }) => (
           <StrategyEditScreen
             strategyId={route.params?.strategyId}
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
           />
         )}
       </Stack.Screen>
@@ -280,7 +289,7 @@ export function AppNavigator(): React.JSX.Element {
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['StrategyBacktest'] } }) => (
           <StrategyBacktestScreen
             strategyId={route.params.strategyId}
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
           />
         )}
       </Stack.Screen>
@@ -288,21 +297,21 @@ export function AppNavigator(): React.JSX.Element {
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['StrategySim'] } }) => (
           <StrategySimScreen
             strategyId={route.params.strategyId}
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="Search">
         {({ navigation }: { navigation: RootNav }) => (
           <SearchScreen
-            onBack={() => navigation.goBack()}
+            onBack={() => safeGoBack(navigation)}
             onOpenStock={(symbol) => navigation.navigate('Detail', { symbol })}
           />
         )}
       </Stack.Screen>
       <Stack.Screen name="AlertRules">
         {({ navigation }: { navigation: RootNav }) => (
-          <AlertRulesScreen onBack={() => navigation.goBack()} />
+          <AlertRulesScreen onBack={() => safeGoBack(navigation)} />
         )}
       </Stack.Screen>
     </Stack.Navigator>

@@ -327,12 +327,23 @@ export class StockSdkSource extends BaseMarketDataSource {
     }
     if (method === 'getIndexQuotes') {
       const syms = a[0] as Symbol[] | undefined;
-      // 同花顺板块指数（.TI，881xxx 等）不属于本源覆盖体系（空数组放行，与方法体守卫一致）
-      if (syms && syms.length > 0 && syms.every((s) => s.exchange === 'TI')) return false;
+      // 本源只覆盖东财 BK/EM 板块；真实股指与同花顺 TI 指数交给 hithsa/fuyao
+      if (!syms || syms.length === 0) return false;
+      const hasBoard = syms.some((s) => s.exchange === 'EM' || /^BK\d+$/i.test(s.code));
+      return hasBoard;
     }
     if (method === 'getIndexKline') {
       const p = a[0] as KlineParams | undefined;
-      if (!p || p.symbol.exchange === 'TI') return false;
+      if (!p) return false;
+      // 东财板块（EM/BK）走 board.*，本源覆盖
+      if (p.symbol.exchange === 'EM' || /^BK\d+$/i.test(p.symbol.code)) return true;
+      // TI 同花顺板块指数不走本源
+      if (p.symbol.exchange === 'TI') return false;
+      // 真实股指（000xxx.SH / 399xxx.SZ）交给 hithsa/fuyao
+      if (/^000\d{3}$/.test(p.symbol.code) || /^399\d{3}$/.test(p.symbol.code)) {
+        return false;
+      }
+      return true;
     }
     // 通用部分委托基类引擎（本源无参数级 spec = 不限制）
     return super.supports(method, args);
@@ -455,14 +466,20 @@ export class StockSdkSource extends BaseMarketDataSource {
    * 如实返回空盘口（绝不伪造数据）。ETF 场内基金 FundQuote 也无盘口。
    */
   async getOrderBook(symbol: Symbol): Promise<OrderBook> {
+    // 港股/美股/场内基金无五档：空盘口
     if (symbol.exchange === 'HK' || symbol.exchange === 'US' || symbol.exchange === 'OF') {
       return { symbol, bids: [], asks: [], updatedAt: Date.now() };
     }
-    const raw: any[] = await this.guard(this.sdk.quotes.cn([toSdkCode(symbol)]), '盘口失败');
-    const r: any = (raw ?? [])[0] ?? {};
-    const bids = (r.bid ?? []).map((b: any) => ({ price: num(b.price), volume: num(b.volume) }));
-    const asks = (r.ask ?? []).map((a: any) => ({ price: num(a.price), volume: num(a.volume) }));
-    return { symbol, bids, asks, updatedAt: numOrNull(r.timestamp) ?? Date.now() };
+    try {
+      const raw: any[] = await this.guard(this.sdk.quotes.cn([toSdkCode(symbol)]), '盘口失败');
+      const r: any = (raw ?? [])[0] ?? {};
+      const bids = (r.bid ?? []).map((b: any) => ({ price: num(b.price), volume: num(b.volume) }));
+      const asks = (r.ask ?? []).map((a: any) => ({ price: num(a.price), volume: num(a.volume) }));
+      return { symbol, bids, asks, updatedAt: numOrNull(r.timestamp) ?? Date.now() };
+    } catch {
+      // 上游盘口端点不稳定/无数据：返回空盘口，避免个股详情刷红屏
+      return { symbol, bids: [], asks: [], updatedAt: Date.now() };
+    }
   }
 
   /**
@@ -701,10 +718,15 @@ export class StockSdkSource extends BaseMarketDataSource {
   /** 板块 / 行业列表（行业板块近似为「指数」候选） */
   async listIndices(_tag?: IndexTag): Promise<IndexInfo[]> {
     const raw: any[] = await this.guard(this.sdk.board.industry.list(), '板块列表失败');
-    return (raw ?? []).map((r: any) => ({
-      symbol: { code: String(r.code ?? ''), exchange: 'SH', name: r.name },
-      name: String(r.name ?? ''),
-    }));
+    return (raw ?? []).map((r: any) => {
+      const code = String(r.code ?? '');
+      // BKxxxx = 东财板块（EM），不要标成 SH/TI，否则 getIndexQuotes 会走错源
+      const exchange = /^BK\d+$/i.test(code) ? ('EM' as const) : ('SH' as const);
+      return {
+        symbol: { code, exchange, name: r.name },
+        name: String(r.name ?? ''),
+      };
+    });
   }
 
   /**
@@ -737,34 +759,71 @@ export class StockSdkSource extends BaseMarketDataSource {
         e,
       );
     }
-    return (raw ?? []).map((r: any) => ({
-      symbol: { code: String(r.code ?? ''), exchange: exchangeOf('CN', r.code ?? ''), name: r.name },
-      name: String(r.name ?? ''),
-    }));
+    return (raw ?? [])
+      .map((r: any) => {
+        const code = String(r.code ?? '');
+        return {
+          symbol: { code, exchange: exchangeOf('CN', code), name: r.name },
+          name: String(r.name ?? ''),
+        };
+      })
+      .filter((it) => {
+        // 板块成分里可能混入 B 股（200/900）等，A 股行情接口不认，过滤掉避免拖垮整批 getQuotes
+        return /^(60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{4}|4\d{4}|92\d{4})$/.test(it.symbol.code);
+      });
   }
 
   /** 指数 / 板块行情：批量行情接口可返回指数（含 sh000001 等） */
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
-    // 同花顺板块指数（.TI，881xxx 等）不属于 stock-sdk 覆盖体系 → 直接 3004，
-    // 避免对能力外代码发起请求并吃网络错误
-    if (symbols.every((s) => s.exchange === 'TI')) {
+    // 同花顺板块指数（88xxxx.TI）与真实股指（000001.SH 等）不走本源：
+    // batch.byCodes 对股指返回空/失败，应交给 hithsa/fuyao index API
+    const boards = symbols.filter((s) => s.exchange === 'EM' || /^BK\d+$/i.test(s.code));
+    if (boards.length === 0) {
       return unsupported('getIndexQuotes');
     }
-    const raw: any[] = await this.guard(
-      this.sdk.batch.byCodes(symbols.map(toSdkCode)),
-      '指数行情失败',
-    );
-    const byCode = new Map<string, any>((raw ?? []).map((r) => [r.code ?? '', r]));
-    return symbols.map((s) => mapQuote(s, byCode.get(toSdkCode(s)) ?? {}));
+
+    const out: Quote[] = [];
+    const list: any[] = await this.guard(this.sdk.board.industry.list(), '板块行情失败');
+    const byCode = new Map<string, any>((list ?? []).map((b) => [String(b?.code ?? ''), b]));
+    for (const s of boards) {
+      const b = byCode.get(s.code);
+      if (!b) continue;
+      const price = numOrNull(b.price) ?? 0;
+      const pct = numOrNull(b.changePercent);
+      out.push({
+        symbol: { ...s, name: b.name ? String(b.name) : s.name },
+        last: price,
+        prevClose: price && pct != null ? price / (1 + pct / 100) : 0,
+        open: price,
+        high: price,
+        low: price,
+        volume: numOrNull(b.volume) ?? 0,
+        // 板块无成交额时用总市值代理（与 treemap 权重口径一致）
+        amount: numOrNull(b.totalMarketCap) ?? numOrNull(b.amount) ?? 0,
+        changePct: pct ?? undefined,
+        updatedAt: Date.now(),
+      });
+    }
+    return out;
   }
 
   async getIndexKline(params: KlineParams): Promise<Candle[]> {
-    // 同花顺板块指数（.TI）不属于 stock-sdk 覆盖体系 → 直接 3004
+    const code = params.symbol.code;
+    // 东财板块（EM / BKxxxx）：走 board.industry/concept.kline，不能当个股 kline.cn
+    if (params.symbol.exchange === 'EM' || /^BK\d+$/i.test(code)) {
+      return this.boardKlineCN(code, params);
+    }
+    // 同花顺板块指数（.TI，88xxxx）不属于 stock-sdk 覆盖体系 → 3004
     if (params.symbol.exchange === 'TI') {
       return unsupported('getIndexKline');
     }
-    // 指数 K 线复用 A 股日 K（行业板块同样走 cn kline）
+    // 真实股指：batch/kline 对 000001 等支持不稳定，交给 hithsa/fuyao
+    if (params.symbol.exchange === 'SH' || params.symbol.exchange === 'SZ') {
+      if (/^000/.test(code) || /^399/.test(code)) {
+        return unsupported('getIndexKline');
+      }
+    }
     return this.getKline({ ...params, symbol: { ...params.symbol, exchange: 'SH' } });
   }
 

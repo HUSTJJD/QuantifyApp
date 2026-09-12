@@ -7,7 +7,7 @@
 import { marketData } from '@/data/api';
 import { database, resetDatabase } from '@/data/db';
 import { MarketMetaStore } from '@/data/db/MarketMetaStore';
-import { syncKlineIncremental, syncTickers, MIN_SYNC_INTERVAL_MS, INCREMENTAL_COUNT } from '@/data/sync/MarketSync';
+import { syncKlineIncremental, syncTickers, MIN_SYNC_INTERVAL_MS, INCREMENTAL_COUNT, FULL_HISTORY_COUNT } from '@/data/sync/MarketSync';
 import type { Candle, Symbol } from '@/data/api';
 
 const SYM_A: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
@@ -124,5 +124,6 @@ describe('syncKlineIncremental 增量同步', () => {
     expect(progress).toEqual([1]);
     expect(MIN_SYNC_INTERVAL_MS).toBeGreaterThan(0);
     expect(INCREMENTAL_COUNT).toBe(60);
+    expect(FULL_HISTORY_COUNT).toBeGreaterThanOrEqual(700);
   });
 });

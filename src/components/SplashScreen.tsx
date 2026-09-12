@@ -15,9 +15,9 @@ import LinearGradient from 'react-native-linear-gradient';
 import { BRAND } from '@/theme/brand';
 import { fontSize, fontWeight, zIndex } from '@/theme';
 
-/** 启动页固定色板（与主题解耦）。 */
-const BG = ['#070A11', '#121A2B', '#0A0D14'] as const;
-const LOGO = ['#FF8A73', '#E5484D', '#A82C36'] as const;
+/** 启动页固定色板（与主题解耦；与 Ghostfolio 青绿品牌一致）。 */
+const BG = ['#191919', '#1F2A2A', '#141818'] as const;
+const LOGO = ['#6BF7F4', '#11BEBC', '#008583'] as const;
 const TEXT = '#F5F7FA';
 const TEXT_MUTED = 'rgba(245,247,250,0.62)';
 const TEXT_FAINT = 'rgba(245,247,250,0.36)';
@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
   glowCool: { backgroundColor: 'rgba(76,154,255,0.12)', top: -80, right: -110 },
   content: { alignItems: 'center' },
   logoWrap: {
-    shadowColor: '#E5484D',
+    shadowColor: '#11BEBC',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.45,
     shadowRadius: 24,

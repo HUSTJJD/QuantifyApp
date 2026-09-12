@@ -12,6 +12,8 @@ const EXCHANGE_SUFFIX: Record<Exchange, string> = {
   TI: '.TI',
   OF: '.OF',
   US: '.US',
+  // 东方财富板块（BKxxxx），无官方 thscode 后缀；仅内部路由用
+  EM: '.EM',
 };
 
 /**
@@ -31,6 +33,7 @@ const SUFFIX_TO_EXCHANGE: Record<string, Exchange> = {
   TI: 'TI',
   OF: 'OF',
   US: 'US',
+  EM: 'EM',
 };
 
 /** 把 600519.SH / 00700.HK 这样的完整代码解析成 Symbol */
@@ -207,6 +210,12 @@ export function marketOf(exchange: Exchange): Market {
  */
 export function toThsCode(symbol: Symbol): string {
   const { code, exchange } = symbol;
+  // 东财板块无同花顺 thscode
+  if (exchange === 'EM' || isEmBoardCode(code)) {
+    throw new Error(
+      `toThsCode: 东方财富板块 ${code} 无同花顺 thscode，应走 stock-sdk board.*`,
+    );
+  }
   // 1) 已带后缀：如 600519.SH / 00700.HK —— 直接使用，去掉多余后缀拼接
   const m = code.match(/^([^.]+)\.([A-Z]{2})$/);
   if (m) {
@@ -237,19 +246,44 @@ export function toThsCode(symbol: Symbol): string {
  * 按此分流：个股 → getQuotes/getKline，指数/板块 → getIndexQuotes/getIndexKline。
  * 判别规则（与代码段约定一致）：
  *  - exchange 'TI'：同花顺概念/行业等板块指数（如 886042.TI），恒为指数；
- *  - SH 且 000 开头：上证系列指数（000001 上证指数、000300 沪深300等）；
- *    SH 个股为 6 开头（600/601/603/605/688），不冲突；
- *  - SZ 且 399 开头：深证系列指数（399001 深证成指等）；SZ 个股为 0/3 开头，
- *    但创业板股票是 300 开头，与 399 不冲突；
- *  - BJ 且 899 开头：北证 50（899050.BJ）等北交所指数；北证个股为 8/4/92 开头，
- *    与 899 不冲突。
+ *  - exchange 'EM'：东方财富行业/概念板块（BK1027 等），走 stock-sdk board.*；
+ *  - SH：仅 000 开头且排除 A 股常见 000xxx 个股段之外——上证指数系列
+ *    （000001 上证指数、000300 沪深300）。注意 0005xx/0006xx/0007xx/0008xx/0009xx
+ *    多为深市个股被误标 SH 时的兜底；本函数要求「SH + 000 且 6 位纯数字」
+ *    才视为指数（000001 既是上证指数也是平安银行 SZ，靠 exchange 区分）；
+ *  - SZ 且 399 开头：深证系列指数（399001 深证成指等）；
+ *  - BJ 且 899 开头：北证 50（899050.BJ）等北交所指数。
  */
 export function isIndexSymbol(symbol: Symbol): boolean {
-  if (symbol.exchange === 'TI') return true;
-  if (symbol.exchange === 'SH') return /^000/.test(symbol.code);
-  if (symbol.exchange === 'SZ') return /^399/.test(symbol.code);
-  if (symbol.exchange === 'BJ') return /^899/.test(symbol.code);
+  if (symbol.exchange === 'TI' || symbol.exchange === 'EM') return true;
+  // 上证指数：000xxx.SH（个股平安银行是 000001.SZ，exchange 不同）
+  if (symbol.exchange === 'SH') return /^000\d{3}$/.test(symbol.code);
+  if (symbol.exchange === 'SZ') return /^399\d{3}$/.test(symbol.code);
+  if (symbol.exchange === 'BJ') return /^899\d{3}$/.test(symbol.code);
   return false;
+}
+
+/** 东方财富板块码：BK + 数字（如 BK1027） */
+export function isEmBoardCode(code: string): boolean {
+  return /^BK\d+$/i.test(String(code ?? '').trim());
+}
+
+/** 同花顺板块指数：88 开头六位（如 886042），或已带 .TI */
+export function isThsBoardCode(code: string): boolean {
+  return /^88\d{4}$/.test(String(code ?? '').replace(/\.[A-Z]{2}$/i, ''));
+}
+
+/**
+ * 把 listIndices / 资金流等来源的板块 code 归一成 Symbol。
+ * - BKxxxx → EM（东财板块，stock-sdk board.*）
+ * - 88xxxx → TI（同花顺板块指数）
+ */
+export function boardSymbol(code: string, name?: string): Symbol {
+  const c = String(code ?? '').trim();
+  if (isEmBoardCode(c)) {
+    return { code: c.toUpperCase(), exchange: 'EM', name };
+  }
+  return { code: c, exchange: 'TI', name };
 }
 
 /** 同花顺 thscode -> 本项目 Symbol */

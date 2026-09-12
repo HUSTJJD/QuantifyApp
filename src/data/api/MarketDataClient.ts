@@ -256,8 +256,15 @@ export class MarketDataClient {
     if (symbols.length === 0) return [];
     // 清洗脏代码（sh603986 / hk03986 等前缀混入 code 的历史数据）
     const cleaned = symbols.map(sanitizeSymbol);
-    const indices = cleaned.filter((s) => isIndexSymbol(s));
-    const stocks = cleaned.filter((s) => !isIndexSymbol(s));
+    // A 股源只认个股/指数数字码：过滤 B 股（200/900）等，避免整批 Unknown
+    const aShareOk = cleaned.filter((s) => {
+      if (s.exchange === 'HK' || s.exchange === 'US' || s.exchange === 'OF' || s.exchange === 'TI' || s.exchange === 'EM') {
+        return true;
+      }
+      return /^(60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{4}|4\d{4}|92\d{4}|000\d{3}|399\d{3})$/.test(s.code);
+    });
+    const indices = aShareOk.filter((s) => isIndexSymbol(s));
+    const stocks = aShareOk.filter((s) => !isIndexSymbol(s));
     const partitionBy = (method: 'getQuotes' | 'getIndexQuotes', subset: Symbol[]) =>
       this.router.partition(
         method,
@@ -303,7 +310,27 @@ export class MarketDataClient {
   // ---------- 估值 ----------
 
   async getValuations(symbols: Symbol[]): Promise<Valuation[]> {
-    return this.call('getValuations', [symbols]);
+    if (symbols.length === 0) return [];
+    // 上游 fuyao 限制 thscodes ≤100；内部自动分片，调用方无需关心
+    const CHUNK = 80;
+    const cleaned = symbols.map(sanitizeSymbol);
+    const out: Valuation[] = [];
+    for (let i = 0; i < cleaned.length; i += CHUNK) {
+      const batch = cleaned.slice(i, i + CHUNK);
+      try {
+        const rows = await this.router.partition(
+          'getValuations',
+          batch,
+          (s) => `${s.code}.${s.exchange}`,
+          (v) => `${v.symbol.code}.${v.symbol.exchange}`,
+          (parts) => [parts],
+        );
+        out.push(...rows);
+      } catch {
+        // 单批失败不拖垮其余
+      }
+    }
+    return out;
   }
 
   // ---------- 财务 ----------
@@ -343,7 +370,17 @@ export class MarketDataClient {
   }
 
   async getIndexQuotes(symbols: Symbol[]): Promise<Quote[]> {
-    return this.call('getIndexQuotes', [symbols]);
+    if (symbols.length === 0) return [];
+    // 与 getQuotes 一致走 partition：整包 invoke 时若含 BJ 等源不覆盖的段，
+    // capabilitySupports 会把整个调用裁掉 → attempted=0 返回空。
+    // partition 按单标的 canCall 拆分，SH/SZ 股指给 hithsa/fuyao，EM/BK 给 stock-sdk。
+    return this.router.partition(
+      'getIndexQuotes',
+      symbols,
+      (s) => `${s.code}.${s.exchange}`,
+      (q) => `${q.symbol.code}.${q.symbol.exchange}`,
+      (parts) => [parts],
+    );
   }
 
   async getIndexKline(params: KlineParams): Promise<Candle[]> {

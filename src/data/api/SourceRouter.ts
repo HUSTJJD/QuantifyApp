@@ -22,6 +22,7 @@
  */
 import { apiStats } from './ApiStabilityStats';
 import { DataSourceError } from './MarketDataSource';
+import { logger } from '@/utils/logger';
 import type {
   DataSourceMethod,
   MarketDataSource,
@@ -295,7 +296,9 @@ export class SourceRouter {
         method === 'getKline' ||
         method === 'getValuations'
       ) {
-        console.warn(`[SourceRouter] ${method} 无可用数据源，返回空: ${formatSymbolTag(a) || 'n/a'}`);
+        logger.warn('SourceRouter', `${method} 无可用数据源，返回空`, {
+          symbol: formatSymbolTag(a) || 'n/a',
+        });
         return [];
       }
       throw new Error(`no data source supports "${method}"`);
@@ -329,7 +332,9 @@ export class SourceRouter {
       });
     if (allSoft) {
       if (hasRealError) {
-        console.warn(`[SourceRouter] ${method} 暂无数据: ${formatSymbolTag(a) || 'n/a'}`);
+        logger.warn('SourceRouter', `${method} 暂无数据`, {
+          symbol: formatSymbolTag(a) || 'n/a',
+        });
       }
       return [];
     }

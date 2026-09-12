@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCandlesLocal, getCandlesFallback } from '@/data/db/KlineReader';
+import { logger } from '@/utils/logger';
 import type { AdjustMode } from '@/quant/adjustment';
 import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
@@ -105,13 +106,20 @@ function debugKline(
     const tail = candles.slice(-3);
     const sample = (arr: Candle[]) =>
       arr.map((c) => ({ dt: c.datetime, o: c.open, h: c.high, l: c.low, cl: c.close, v: c.volume, a: c.amount }));
-    console.warn(
-      `[kline-debug] ${from} ${symbol.code}.${symbol.exchange} ${period} adjust=${adjust} ` +
-        `n=${n} badNonFinite=${bad} badDateTime=${badDateTime} badIdx=${JSON.stringify(badIdx)} ` +
-        `head=${JSON.stringify(sample(head))} tail=${JSON.stringify(sample(tail))}`,
+    logger.debug(
+      'useLocalKline',
+      `${from} ${symbol.code}.${symbol.exchange} ${period} adjust=${adjust}`,
+      {
+        n,
+        badNonFinite: bad,
+        badDateTime,
+        badIdx,
+        head: sample(head),
+        tail: sample(tail),
+      },
     );
   } catch (e) {
-    console.warn(`[kline-debug] error: ${String(e)}`);
+    logger.warn('useLocalKline', 'kline-debug error', { error: String(e) });
   }
 }
 

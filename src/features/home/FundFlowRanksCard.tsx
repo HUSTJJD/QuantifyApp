@@ -74,7 +74,8 @@ export function FundFlowRanksCard({ onPressStock }: {
     key: it.code,
     name: it.name,
     code: it.code,
-    exchange: 'TI',
+    // BKxxxx 东财板块 → EM；其余按 TI 同花顺板块指数
+    exchange: /^BK\d+$/i.test(it.code) ? 'EM' : 'TI',
     inflow: it.mainNetInflow,
   }));
   const rows = tab === 'sector' ? sectorRows : stockRows;

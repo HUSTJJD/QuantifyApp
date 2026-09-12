@@ -5,7 +5,7 @@
  *  - 展示启动动画后渲染导航容器；
  *  - 用 react-native-paper 的 PaperProvider 提供统一 Material 组件主题。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar, AppState, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -15,7 +15,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { marketData, applyUserPreferences } from '@/data/api';
 import { database } from '@/data/db';
 import { AppNavigator } from '@/navigation/AppNavigator';
-import { SplashScreen } from '@/components/SplashScreen';
 import { ThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
 import { startSignalEngine } from '@/quant/SignalEngine';
 import { startStrategyEngine } from '@/quant/StrategyEngine';
@@ -23,7 +22,9 @@ import { AlertCenterProvider, PollerBridge } from '@/features/watchlist/alertCen
 import { scheduleBackgroundSync } from '@/data/sync/scheduler';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-/** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。 */
+/** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。
+ * 注意：react-native-paper 可能以「函数调用」而非 JSX 调用 settings.icon，
+ * 不能在内部使用 Hooks（含 React Compiler 注入的 cache hook）。 */
 function PaperIcon(props: React.ComponentProps<typeof MaterialCommunityIcons>): React.JSX.Element {
   return <MaterialCommunityIcons {...props} />;
 }
@@ -33,7 +34,6 @@ function PaperIcon(props: React.ComponentProps<typeof MaterialCommunityIcons>): 
 //  2. 未设置时，可临时用构建期环境变量 THS_API_KEY 注入（仅测试用，不落盘）；
 //  3. 严禁把真实 Key 写死进代码/默认值。
 function App(): React.JSX.Element {
-  const [splashDone, setSplashDone] = useState(false);
   // MaterialCommunityIcons：迁移 Expo 后由 expo-font 从 assets/fonts 加载
   const [fontsLoaded] = useFonts({
     MaterialCommunityIcons: require('./assets/fonts/MaterialCommunityIcons.ttf'),
@@ -77,7 +77,6 @@ function App(): React.JSX.Element {
             <PollerBridge />
           </AlertCenterProvider>
         </ThemeProvider>
-        {!splashDone && <SplashScreen onFinish={() => setSplashDone(true)} />}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -90,8 +89,8 @@ function AppInner(): React.JSX.Element {
   const isDark = mode === 'light' ? false : true;
 
   const paperTheme = isDark
-    ? { ...MD3DarkTheme, colors: { ...MD3DarkTheme.colors, primary: '#E5484D' } }
-    : { ...MD3LightTheme, colors: { ...MD3LightTheme.colors, primary: '#E5484D' } };
+    ? { ...MD3DarkTheme, colors: { ...MD3DarkTheme.colors, primary: '#11BEBC' } }
+    : { ...MD3LightTheme, colors: { ...MD3LightTheme.colors, primary: '#00A19F' } };
 
   return (
     <PaperProvider theme={paperTheme} settings={{ icon: PaperIcon }}>

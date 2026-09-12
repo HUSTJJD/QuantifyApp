@@ -525,7 +525,7 @@ describe('指数 / 板块', () => {
     const s = new StockSdkSource();
     const res = await s.listIndices();
     expect(mockSdk.board.industry.list).toHaveBeenCalled();
-    expect(res[0].symbol).toMatchObject({ code: 'BK0001', exchange: 'SH', name: '银行' });
+    expect(res[0].symbol).toMatchObject({ code: 'BK0001', exchange: 'EM', name: '银行' });
   });
   it('getIndexConstituents 委托 board.industry.constituents', async () => {
     mockSdk.board.industry.constituents.mockResolvedValue([{ code: '600519', name: '茅台' }]);
@@ -534,18 +534,19 @@ describe('指数 / 板块', () => {
     expect(mockSdk.board.industry.constituents).toHaveBeenCalledWith('BK0001');
     expect(res[0].symbol.code).toBe('600519');
   });
-  it('getIndexQuotes 委托 batch.byCodes', async () => {
-    mockSdk.batch.byCodes.mockResolvedValue([FULL('000001')]);
+  it('getIndexQuotes：真实股指 3004 交给 hithsa/fuyao', async () => {
     const s = new StockSdkSource();
-    const res = await s.getIndexQuotes([CN('000001')]);
-    expect(mockSdk.batch.byCodes).toHaveBeenCalledWith(['000001']);
-    expect(res[0].last).toBe(10.5);
+    await expect(s.getIndexQuotes([CN('000001')])).rejects.toThrow(
+      /不支持 getIndexQuotes/,
+    );
+    expect(mockSdk.batch.byCodes).not.toHaveBeenCalled();
   });
-  it('getIndexKline 委托 kline.cn', async () => {
-    mockSdk.kline.cn.mockResolvedValue([{ date: '2024-01-01', open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 }]);
+  it('getIndexKline：真实股指 3004 交给 hithsa/fuyao', async () => {
     const s = new StockSdkSource();
-    await s.getIndexKline({ symbol: CN('000001'), period: 'day' });
-    expect(mockSdk.kline.cn).toHaveBeenCalled();
+    await expect(s.getIndexKline({ symbol: CN('000001'), period: 'day' })).rejects.toThrow(
+      /不支持 getIndexKline/,
+    );
+    expect(mockSdk.kline.cn).not.toHaveBeenCalled();
   });
   /**
    * 板块行情走 board.industry.list 而非 spot：
