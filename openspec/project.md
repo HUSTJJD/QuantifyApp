@@ -39,13 +39,29 @@
 
 ## 下一阶段主攻（按 ROI）
 
-基于外层参考 App（Opptrix / OpenStock / stock-dashboard / ghostfolio）与当前 UI 基线：
+结合本地缺口与参考：Opptrix / OpenStock / streetmerchant / moomoo / Webull / 同花顺 / ghostfolio / stock-dashboard：
 
-1. ~~mobile-surface-v1~~ 已交付：Token / 骨架屏 / 自选密度 / FlashList / 资产页去 paper
-2. ~~quant-visibility~~ 已交付：策略 Tab 脉冲 + 快捷入口；热力图多维
-3. ~~onboarding-notify~~ 已交付：首启 3 屏 + 盘后摘要（应用内触达）
-4. **组合归因增强**：行业/因子维度归因、与基准对比的绩效曲线
-5. **尾盘选股卡片流**（quant-visibility 可选延伸，stock-dashboard EodPicker）
-6. ~~系统推送通知~~ 降级为 onboarding-notify 内的本地/应用内通知；厂商推送仍可延后
-7. ~~复权回测入链路~~ 已交付：`loadBacktestSeries` 不复权 + 本地因子
-8. ~~除权日持仓调整~~ 已交付：`runBacktest({ corporateActions })` 分红/送转/配股
+1–3. ~~mobile-surface-v1 / quant-visibility / onboarding-notify~~ 已交付
+4. ~~portfolio-attribution-v2~~ 已交付：行业归因 + NavVsBenchmark（资产/模拟盘）
+5. ~~eod-picker-cards~~ 已交付：套餐卡片流 + eod_scan 调度 job
+6. ~~sim-paper-deep~~ 已交付：PaperBadge + sim 净值快照/基准
+7. ~~alert-notify-harden~~ 已交付：生命周期冷却 + 通道扇出 + 轮询退避模块
+8. ~~quant-scheduler~~ 已交付：Job/run 内核 + 自动化设置页
+9. ~~stock-decision-card~~ 已交付：详情页决策卡
+10. ~~watchlist-radar-line~~ 已交付：雷达副标题（行业映射缓存；报价宽限可再强化）
+11. ~~系统推送 / 复权回测 / 除权调整~~ 已交付或并入上述
+
+可选后续：~~涨跌色配置~~ 已交付；~~告警生命周期 UI + 轮询退避~~ 已交付；~~模拟成交时间线~~ 已交付；~~typecheck:app + QA 清单~~ 已交付。
+
+**仍待交付**：
+1. ~~regime-recommend-chips~~ 已交付：市况判定 + 策略模板推荐 chips
+2. ~~加自选报价宽限 / 雷达行业~~ 已交付：addedPriceCache + peekIndustryOf
+3. ~~告警创建预填价~~ 已交付
+4. NL 筛股（问财式）— 可选后续
+5. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题
+
+## 质量门
+
+- `npm run typecheck:app` — 仅 App 源（排除 stock-sdk）
+- `npm run test`
+- `docs/QA_CHECKLIST.md` — 真机验收

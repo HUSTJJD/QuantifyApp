@@ -35,8 +35,10 @@ import { MineScreen } from '@/features/mine/MineScreen';
 import { BacktestScreen } from '@/features/backtest/BacktestScreen';
 import { ScannerScreen } from '@/features/scanner/ScannerScreen';
 import { WorkflowScreen } from '@/features/scanner/WorkflowScreen';
+import { EodPickerScreen } from '@/features/scanner/EodPickerScreen';
 import { SearchScreen } from '@/features/search/SearchScreen';
 import { AlertRulesScreen } from '@/features/watchlist/AlertRulesScreen';
+import { AutomationScreen } from '@/features/settings/AutomationScreen';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
@@ -57,10 +59,12 @@ export type RootStackParamList = {
   Backtest: undefined;
   Scanner: undefined;
   Workflow: undefined;
+  EodPicker: undefined;
+  Automation: undefined;
   Search: undefined;
   AlertRules: undefined;
   /** 策略编辑（新建不传 strategyId；删除策略后模板可再次新建） */
-  StrategyEdit: { strategyId?: string };
+  StrategyEdit: { strategyId?: string; templateId?: string };
   StrategyBacktest: { strategyId: string };
   StrategySim: { strategyId: string };
 };
@@ -158,6 +162,7 @@ function MainTabs(): React.JSX.Element {
             <StrategiesScreen
               onEdit={(id) => root?.navigate('StrategyEdit', { strategyId: id })}
               onCreate={() => root?.navigate('StrategyEdit', {})}
+              onCreateFromTemplate={(templateId) => root?.navigate('StrategyEdit', { templateId })}
               onBacktest={(id) => root?.navigate('StrategyBacktest', { strategyId: id })}
               onOpenSim={(id) => root?.navigate('StrategySim', { strategyId: id })}
               onOpenStock={(key) => {
@@ -166,6 +171,7 @@ function MainTabs(): React.JSX.Element {
               }}
               onOpenScanner={() => root?.navigate('Scanner')}
               onOpenWorkflow={() => root?.navigate('Workflow')}
+              onOpenEod={() => root?.navigate('EodPicker')}
             />
           );
         }}
@@ -186,6 +192,7 @@ function MainTabs(): React.JSX.Element {
               onOpenScanner={() => root?.navigate('Scanner')}
               onOpenWorkflow={() => root?.navigate('Workflow')}
               onOpenAlertRules={() => root?.navigate('AlertRules')}
+              onOpenAutomation={() => root?.navigate('Automation')}
             />
           );
         }}
@@ -271,6 +278,19 @@ export function AppNavigator(): React.JSX.Element {
           />
         )}
       </Stack.Screen>
+      <Stack.Screen name="EodPicker">
+        {({ navigation }: { navigation: RootNav }) => (
+          <EodPickerScreen
+            onBack={() => safeGoBack(navigation)}
+            onOpenDetail={(symbol) => navigation.navigate('Detail', { symbol })}
+          />
+        )}
+      </Stack.Screen>
+      <Stack.Screen name="Automation">
+        {({ navigation }: { navigation: RootNav }) => (
+          <AutomationScreen onBack={() => safeGoBack(navigation)} />
+        )}
+      </Stack.Screen>
       <Stack.Screen name="Workflow">
         {({ navigation }: { navigation: RootNav }) => (
           <WorkflowScreen
@@ -283,6 +303,7 @@ export function AppNavigator(): React.JSX.Element {
         {({ navigation, route }: { navigation: RootNav; route: { params: RootStackParamList['StrategyEdit'] } }) => (
           <StrategyEditScreen
             strategyId={route.params?.strategyId}
+            templateId={route.params?.templateId}
             onBack={() => safeGoBack(navigation)}
           />
         )}

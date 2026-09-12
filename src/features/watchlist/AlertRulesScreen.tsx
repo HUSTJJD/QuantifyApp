@@ -4,7 +4,7 @@
  * - 用户自定义价格告警（上破/下破/涨跌幅）
  * - 策略信号告警按策略静音/开启
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -33,6 +33,8 @@ import {
 } from './userAlertRules';
 import { getProfiles } from '@/quant/profileStore';
 import type { StrategyProfile } from '@/quant/profile';
+import { listLifecycle, reenableLifecycle, type AlertLifecycle } from './alertLifecycle';
+import { marketData } from '@/data/api';
 import { spacing, fontSize, fontWeight, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Toggle } from '@/components';
@@ -78,18 +80,21 @@ export function AlertRulesScreen({ onBack }: { onBack?: () => void }): React.JSX
   const [formExchange, setFormExchange] = useState('SH');
   const [formThreshold, setFormThreshold] = useState('');
   const [busy, setBusy] = useState(false);
+  const [lifecycles, setLifecycles] = useState<AlertLifecycle[]>([]);
 
   const load = useCallback(async () => {
-    const [all, user, ps, m] = await Promise.all([
+    const [all, user, ps, m, lives] = await Promise.all([
       getAllAlertRules(),
       getUserAlertRules(),
       getProfiles(),
       getMutedSignalStrategies(),
+      listLifecycle(),
     ]);
     setRules(all.filter((r) => !r.id.startsWith('user_')));
     setUserRules(user);
     setProfiles(ps);
     setMuted(m);
+    setLifecycles(lives.filter((l) => l.status === 'triggered' || l.status === 'expired').slice(0, 20));
   }, []);
 
   useFocusEffect(
@@ -97,6 +102,31 @@ export function AlertRulesScreen({ onBack }: { onBack?: () => void }): React.JSX
       load().catch(() => undefined);
     }, [load]),
   );
+
+  // 填入代码后预填阈值（OpenStock 模式）
+  useEffect(() => {
+    const code = formCode.trim();
+    if (!code || formType === 'pct') return;
+    let alive = true;
+    const t = setTimeout(() => {
+      marketData
+        .getQuotes([{ code, exchange: formExchange as 'SH' | 'SZ' | 'BJ' }])
+        .then((qs) => {
+          const last = qs?.[0]?.last;
+          if (!alive || !last || last <= 0) return;
+          setFormThreshold((cur) => {
+            if (cur.trim()) return cur;
+            const base = formType === 'priceBelow' ? last * 0.95 : last * 1.05;
+            return base.toFixed(2);
+          });
+        })
+        .catch(() => undefined);
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [formCode, formExchange, formType]);
 
   const toggleDefault = useCallback(
     async (id: string, next: boolean) => {
@@ -171,6 +201,48 @@ export function AlertRulesScreen({ onBack }: { onBack?: () => void }): React.JSX
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {lifecycles.length > 0 && (
+          <>
+            <Section title="最近触发 / 静默" />
+            <Card padded={false}>
+              {lifecycles.map((l, i) => {
+                const coolLeft = l.lastNotifiedAt
+                  ? Math.max(
+                      0,
+                      Math.ceil(((l.cooldownSec ?? 300) * 1000 - (Date.now() - l.lastNotifiedAt)) / 1000),
+                    )
+                  : 0;
+                return (
+                  <View
+                    key={`${l.ruleId}-${l.symbolKey}`}
+                    style={[styles.row, i === lifecycles.length - 1 && styles.rowLast]}
+                  >
+                    <View style={styles.rowText}>
+                      <Text style={styles.rowTitle}>{l.symbolKey}</Text>
+                      <Text style={styles.rowDesc}>
+                        {l.status === 'expired'
+                          ? '已过期，不再通知'
+                          : coolLeft > 0
+                            ? `已触发 · 静默剩余 ${coolLeft}s`
+                            : '已触发 · 可再次通知'}
+                      </Text>
+                    </View>
+                    {l.status === 'triggered' ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          reenableLifecycle(l.ruleId, l.symbolKey).then(load).catch(() => undefined);
+                        }}
+                      >
+                        <Text style={{ color: colors.primary, fontWeight: '600' }}>恢复</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        )}
+
         <Section title="内置规则" />
         <Card padded={false}>
           {rules.map((r, i) => {

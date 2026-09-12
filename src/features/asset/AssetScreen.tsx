@@ -37,6 +37,9 @@ import {
   computeNavMetrics,
   computeAttribution,
 } from '@/quant/portfolioPerf';
+import { computeIndustryAttribution } from '@/quant/industryAttribution';
+import { getIndustryOf, peekIndustryOf } from '@/quant/industryMap';
+import { NavVsBenchmark } from './NavVsBenchmark';
 
 export function AssetScreen({ onBack }: { onBack?: () => void }): React.JSX.Element {
   const { colors } = useAppTheme();
@@ -51,6 +54,7 @@ export function AssetScreen({ onBack }: { onBack?: () => void }): React.JSX.Elem
   const { data: quotes, reload: reloadQuotes } = useQuotes(symbols, 'stock', focused);
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const [industryTick, setIndustryTick] = useState(0);
 
   const styles = makeStyles(colors);
 
@@ -90,6 +94,25 @@ export function AssetScreen({ onBack }: { onBack?: () => void }): React.JSX.Elem
   const summary = computePortfolioSummary(rows.map((r) => r.pnl));
   const attribution = computeAttribution(rows.map((r) => r.pnl));
   const navMetrics = snapshots.length >= 2 ? computeNavMetrics(snapshots.map((s) => s.total)) : null;
+  const industryAttr = computeIndustryAttribution(
+    rows.map((r) => r.pnl),
+    (code, exchange) => peekIndustryOf(code, exchange),
+  );
+
+  useEffect(() => {
+    if (holdings.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const h of holdings) {
+        await getIndustryOf(h.symbol.code, h.symbol.exchange);
+        if (cancelled) return;
+      }
+      if (!cancelled) setIndustryTick((t) => t + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [holdings]);
 
   useEffect(() => {
     if (!focused) return;
@@ -224,6 +247,39 @@ export function AssetScreen({ onBack }: { onBack?: () => void }): React.JSX.Elem
             </Card>
           </>
         )}
+
+        {industryAttr.some((i) => i.industry !== '未分类') && (
+          <>
+            <Section title="行业归因" />
+            <Card>
+              {industryAttr.map((a) => (
+                <View key={a.industry} style={styles.attrRow}>
+                  <Text style={styles.attrName} numberOfLines={1}>
+                    {a.industry}
+                  </Text>
+                  <View style={styles.attrBar}>
+                    <View
+                      style={[
+                        styles.attrBarFill,
+                        {
+                          width: `${Math.min(100, Math.abs(a.contributionPct) * 100)}%`,
+                          backgroundColor: a.pnl >= 0 ? colors.up : colors.down,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.attrPnl, { color: a.pnl >= 0 ? colors.up : colors.down }]}>
+                    {a.pnl >= 0 ? '+' : ''}
+                    {a.pnl.toFixed(0)}
+                    <Text style={{ color: colors.textSecondary }}> ({(a.weight * 100).toFixed(0)}%)</Text>
+                  </Text>
+                </View>
+              ))}
+            </Card>
+          </>
+        )}
+
+        <NavVsBenchmark snapshots={snapshots} />
 
         {attribution.length > 0 && (
           <>

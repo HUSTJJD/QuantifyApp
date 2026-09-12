@@ -44,10 +44,13 @@ const PERIOD_OPTIONS: { label: string; value: SignalPeriod }[] = [
 export function StrategyEditScreen({
   onBack,
   strategyId,
+  templateId,
 }: {
   onBack?: () => void;
   /** 传入则编辑，缺省为「从模板新建」 */
   strategyId?: string;
+  /** 新建时预选模板（市况推荐 chips） */
+  templateId?: string;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -72,10 +75,12 @@ export function StrategyEditScreen({
       }
       const all = await getProfiles();
       setUsed(all.map((x) => x.id));
-      const first = STRATEGIES.find((s) => !all.some((x) => x.id === s.id));
-      if (first) {
-        setSelTemplate(first.id);
-        const draft0 = createProfileFromTemplate(first.id);
+      const preferred =
+        (templateId && STRATEGIES.find((s) => s.id === templateId && !all.some((x) => x.id === s.id))) ||
+        STRATEGIES.find((s) => !all.some((x) => x.id === s.id));
+      if (preferred) {
+        setSelTemplate(preferred.id);
+        const draft0 = createProfileFromTemplate(preferred.id);
         // 应用设置页的默认仓位与信号周期
         try {
           const { getAppPrefs } = await import('@/settings/appPrefs');
@@ -89,10 +94,10 @@ export function StrategyEditScreen({
           // 读偏好失败用模板默认
         }
         setDraft(draft0);
-        setName(first.label);
+        setName(preferred.label);
       }
     })().catch(() => undefined);
-  }, [strategyId]);
+  }, [strategyId, templateId]);
 
   const patch = useCallback((fn: (d: StrategyProfile) => StrategyProfile) => {
     setDraft((d) => (d ? fn(d) : d));

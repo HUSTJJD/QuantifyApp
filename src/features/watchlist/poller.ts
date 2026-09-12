@@ -22,6 +22,7 @@ import {
 import { getAllAlertRules } from './userAlertRules';
 import { getWatchlist } from '@/data/repositories/WatchlistRepository';
 import { recordAlerts, dedupeKey, getAlertHistory } from './alertHistory';
+import { shouldSkipNotify, markNotified, getBackoff, recordBackoffFailure, recordBackoffSuccess } from './alertLifecycle';
 import { getCandlesLocal } from '@/data/db/KlineReader';
 import { logger } from '@/utils/logger';
 
@@ -122,27 +123,63 @@ export class WatchlistPoller {
     const events = evaluateWatchlist(quotes, symbols, rules, known, candleMap ?? undefined);
     if (events.length > 0) {
       await recordAlerts(events);
-      this.deps.notify(events);
+      const fresh: typeof events = [];
+      for (const e of events) {
+        const key = `${e.symbol.code}.${e.symbol.exchange}`;
+        if (await shouldSkipNotify(e.ruleId, key)) continue;
+        fresh.push(e);
+        await markNotified(e.ruleId, key);
+      }
+      if (fresh.length > 0) this.deps.notify(fresh);
     }
     return events.length;
   }
 
+  private wantRun = false;
+
   /** 启动轮询 */
   start(): void {
+    this.wantRun = true;
     if (this.timer) return;
     this.tickSafe('启动');
-    this.timer = setInterval(() => this.tickSafe('轮询'), this.deps.intervalMs);
   }
 
-  /** tick 的安全包装：失败记日志，不产生未处理的 promise rejection */
+  /** tick 的安全包装：失败记日志并指数退避后重排 */
   private tickSafe(phase: string): void {
-    this.tick().catch((e) => {
-      logger.error('WatchlistPoller', `异动检测失败（${phase}）`, { message: String(e?.message ?? e) });
-    });
+    this.tick()
+      .then(() => recordBackoffSuccess('watchlist').catch(() => undefined))
+      .catch((e) => {
+        logger.error('WatchlistPoller', `异动检测失败（${phase}）`, { message: String(e?.message ?? e) });
+        void recordBackoffFailure('watchlist').catch(() => undefined);
+      })
+      .finally(() => {
+        this.reschedule();
+      });
+  }
+
+  /** 按退避状态重排下一次 interval */
+  private reschedule(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    if (!this.wantRun) return;
+    void getBackoff('watchlist')
+      .then((ms) => {
+        if (!this.wantRun) return;
+        this.deps = { ...this.deps, intervalMs: ms };
+        this.timer = setInterval(() => this.tickSafe('轮询'), ms);
+      })
+      .catch(() => {
+        if (this.wantRun) {
+          this.timer = setInterval(() => this.tickSafe('轮询'), this.deps.intervalMs);
+        }
+      });
   }
 
   /** 停止轮询 */
   stop(): void {
+    this.wantRun = false;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -150,7 +187,7 @@ export class WatchlistPoller {
   }
 
   get running(): boolean {
-    return this.timer !== null;
+    return this.wantRun;
   }
 
   /** 运行时更新通知回调（App 启动后注入 AlertCenter）。 */

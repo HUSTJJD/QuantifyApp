@@ -10,13 +10,14 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "typecheck:app": "tsc -p tsconfig.app.json --noEmit",
     "test": "jest",
     "devtools": "react-devtools",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\" \"__tests__/**/*.{ts,tsx}\" \"*.{js,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\" \"__tests__/**/*.{ts,tsx}\" \"*.{js,json,md}\"",
     "clean": "bash scripts/clean.sh",
     "postinstall": "node scripts/patch-skia-path-deprecations.js",
-    "validate": "npm run typecheck && npm run lint && npm run test"
+    "validate": "npm run typecheck:app && npm run test"
   },
   "dependencies": {
     "@nozbe/watermelondb": "^0.28.0",

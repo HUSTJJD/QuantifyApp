@@ -39,6 +39,9 @@ import { GroupSummaryStrip } from './GroupSummaryStrip';
 import { SortToggle, type SortMode } from './SortToggle';
 import type { TradeSignal } from '@/quant/signals';
 import { Card, PriceText, ChangePct, Tag, SkeletonRows, MiniDaySparkline } from '@/components';
+import { WatchRadarLine } from './WatchRadarLine';
+import { peekAddedPrice, setAddedPrice } from './addedPriceCache';
+import { getIndustryOf } from '@/quant/industryMap';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
 
@@ -100,6 +103,12 @@ export function WatchlistTabScreen({
   useFocusEffect(
     useCallback(() => {
       loadMeta().catch(() => setReady(true));
+      void (async () => {
+        const list = (await loadWatchlistWithBackfill().catch(() => null))?.flat ?? [];
+        for (const s of list.slice(0, 40)) {
+          await getIndustryOf(s.code, s.exchange).catch(() => undefined);
+        }
+      })();
     }, [loadMeta]),
   );
 
@@ -349,8 +358,11 @@ function WatchRow({
   onDelete: () => void;
   colors: ReturnType<typeof useAppTheme>['colors'];
 }): React.JSX.Element {
-  const chg = item.last - item.prevClose;
-  const pct = item.prevClose ? (chg / item.prevClose) * 100 : 0;
+  const key = toFullCode(item.symbol);
+  const grace = item.last > 0 ? null : peekAddedPrice(key);
+  const last = item.last > 0 ? item.last : grace ?? 0;
+  const chg = last - item.prevClose;
+  const pct = item.prevClose && last > 0 ? (chg / item.prevClose) * 100 : 0;
   const styles = makeStyles(colors);
 
   const renderRightActions = () => (
@@ -366,16 +378,19 @@ function WatchRow({
       rightThreshold={40}
     >
       <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.75}>
-        <View style={styles.nameCol}>
-          <Text style={styles.name} numberOfLines={1}>
-            {displaySymbol(item.symbol, item.symbol.name)}
-          </Text>
-          {signal && signal.side !== 'hold' && (
-            <Tag text={signal.side === 'buy' ? '买' : '卖'} variant={signal.side === 'buy' ? 'buy' : 'sell'} />
-          )}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.nameCol}>
+            <Text style={styles.name} numberOfLines={1}>
+              {displaySymbol(item.symbol, item.symbol.name)}
+            </Text>
+            {signal && signal.side !== 'hold' && (
+              <Tag text={signal.side === 'buy' ? '买' : '卖'} variant={signal.side === 'buy' ? 'buy' : 'sell'} />
+            )}
+          </View>
+          <WatchRadarLine symbolKey={key} />
         </View>
-        <MiniDaySparkline quote={item} width={52} height={26} />
-        <PriceText value={item.last > 0 ? item.last : null} style={styles.price} />
+        <MiniDaySparkline quote={last !== item.last ? { ...item, last } : item} width={52} height={26} />
+        <PriceText value={last > 0 ? last : null} style={styles.price} />
         <ChangePct pct={pct} style={styles.chg} />
       </TouchableOpacity>
     </Swipeable>

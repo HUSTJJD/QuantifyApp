@@ -22,6 +22,7 @@ export function MineScreen({
   onOpenScanner,
   onOpenWorkflow,
   onOpenAlertRules,
+  onOpenAutomation,
 }: {
   onOpenAsset: () => void;
   onOpenSettings: () => void;
@@ -31,6 +32,7 @@ export function MineScreen({
   onOpenScanner?: () => void;
   onOpenWorkflow?: () => void;
   onOpenAlertRules?: () => void;
+  onOpenAutomation?: () => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -54,6 +56,9 @@ export function MineScreen({
       <MenuLink icon={Icons.wallet} title="我的资产" desc="持仓与资产走势" onPress={onOpenAsset} colors={colors} />
       {onOpenAlertRules && (
         <MenuLink icon={Icons.bell} title="盯盘告警" desc="价格/指标/策略信号提醒" onPress={onOpenAlertRules} colors={colors} />
+      )}
+      {onOpenAutomation && (
+        <MenuLink icon={Icons.clock} title="自动化" desc="盘后摘要 / 尾盘扫描 任务与运行历史" onPress={onOpenAutomation} colors={colors} />
       )}
       <MenuLink icon={Icons.cog} title="设置" desc="主题 · 数据源 · API Key" onPress={onOpenSettings} colors={colors} />
 

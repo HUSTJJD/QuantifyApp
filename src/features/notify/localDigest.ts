@@ -6,6 +6,8 @@
 import { getAppPrefs } from '@/settings/appPrefs';
 import { buildDigest, digestDayKey } from './digest';
 import { storage } from '@/data/db/storage';
+import { registerJobKind, type ScheduledJob, type JobRun } from '@/quant/scheduler';
+import { sendNotify } from './channels';
 
 const LAST_DIGEST_KEY = 'notify.digest.lastDay';
 
@@ -77,3 +79,15 @@ export async function fireDigestNow(): Promise<{ title: string; body: string }> 
   sink?.(content.title, content.body);
   return content;
 }
+
+/** 注册到统一调度器 */
+registerJobKind('digest', async (_job: ScheduledJob, _run: JobRun) => {
+  const day = digestDayKey();
+  const last = await storage.getString(LAST_DIGEST_KEY);
+  if (last === day) return { summary: '今日已发送过摘要，跳过' };
+  const content = await buildDigest();
+  await storage.setString(LAST_DIGEST_KEY, day);
+  sink?.(content.title, content.body);
+  await sendNotify({ title: content.title, body: content.body, data: { kind: 'digest' } });
+  return { summary: content.body };
+});

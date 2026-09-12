@@ -1,6 +1,6 @@
 # change: mobile-surface-v1 — 移动端外观与交互打磨（下一阶段第一优先）
 
-> **状态：待交付**。参考 Opptrix Token 体系、OpenStock 空态/卡片密度、ghostfolio 资产大数字、stock-dashboard 自选行信息密度。
+> **状态：已交付（2026-09-12）**。Token（duration/layout/primarySoft/surfaceMuted）、Skeleton、EmptyState 引导按钮、自选 FlashList+Sparkline+滑动删除+分组摘要、IndexBar 主题化、Asset 去 paper 已落地。
 
 ## Why
 

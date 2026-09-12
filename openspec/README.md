@@ -19,23 +19,35 @@ openspec/
     ├── signal-to-trade-loop/spec.md    ③ 扫描→信号→模拟→跟单闭环
     ├── mobile-surface-v1/spec.md       ④ 移动端外观与交互打磨
     ├── quant-visibility/spec.md        ⑤ 量化工作流可达性 + 热力图
-    └── onboarding-notify/spec.md       ⑥ 首启引导 + 盘后摘要
+    ├── onboarding-notify/spec.md       ⑥ 首启引导 + 盘后摘要
+    ├── portfolio-attribution-v2/spec.md ⑦ 组合行业归因 + 基准对比（待交付）
+    ├── eod-picker-cards/spec.md        ⑧ 尾盘选股卡片流（待交付）
+    ├── sim-paper-deep/spec.md          ⑨ 模拟盘绩效 + PAPER 隔离（待交付）
+    ├── alert-notify-harden/spec.md     ⑩ 告警生命周期 + 通知扇出（待交付）
+    ├── quant-scheduler/spec.md         ⑪ 统一本地任务调度（待交付）
+    ├── stock-decision-card/spec.md     ⑫ 个股决策卡
+    ├── watchlist-radar-line/spec.md    ⑬ 自选雷达行 + 报价宽限
+    ├── trade-colors-prefs/spec.md      ⑭ 涨跌色可配置
+    ├── alert-lifecycle-ui/spec.md      ⑮ 告警生命周期 UI + 退避
+    ├── sim-trade-timeline/spec.md      ⑯ 成交时间线 + 雷达强化
+    ├── quality-gates/spec.md           ⑰ typecheck:app + QA 清单
+    └── regime-recommend-chips/spec.md  ⑱ 市况推荐 chips
 ```
 
-外部参考项目（stock-sdk / stock-dashboard / kline-charts-react / ghostfolio / react-native-graph / OpenStock / Opptrix）见 `docs/references/REFERENCE_PROJECTS.md`。
+外部参考项目见 `docs/references/REFERENCE_PROJECTS.md`。真机清单见 `docs/QA_CHECKLIST.md`。
 
 ## 开发顺序建议
 
-| 阶段 | 变更 | 产出 | 状态 |
-|---|---|---|---|
-| 1 | strategy-maturity | 策略可配置、信号可解释、风控闭环 | 已交付 |
-| 2 | backtest-trust | 回测数字可信，参数扫描可用 | 已交付 |
-| 3 | signal-to-trade-loop | 端到端量化工作流 | 已交付 |
-| 4 | 盯盘告警完善 | 价格/指标/策略信号 + 规则管理 | 已交付 |
-| 5 | 组合净值 | 日更快照 + 归因 + 净值指标 | 已交付 |
-| 6 | mobile-surface-v1 | Token/骨架屏/自选密度/列表性能/资产页 | 已交付 |
-| 7 | quant-visibility | 策略 Tab 工作台 + 热力图多维 | 已交付 |
-| 8 | onboarding-notify | 首启 3 屏 + 盘后摘要 + 告警触达 | 已交付 |
+| 阶段 | 变更 | 状态 |
+|---|---|---|
+| 1–13 | 策略闭环 → UX → 归因/调度/决策卡 | 已交付 |
+| 14 | trade-colors-prefs | 已交付 |
+| 15 | alert-lifecycle-ui | 已交付 |
+| 16 | sim-trade-timeline | 已交付 |
+| 17 | quality-gates | 已交付 |
+| 18 | regime-recommend-chips | 已交付 |
+
+> 建议：`quant-scheduler` 可与 10/12 同期做内核；`stock-decision-card` 的缓存可被 15 复用。
 
 下一阶段主攻见 `project.md`；外观/交互/功能参考映射见各 change 的 Why 与 `docs/references/REFERENCE_PROJECTS.md`。
 

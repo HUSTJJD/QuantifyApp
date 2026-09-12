@@ -4,6 +4,9 @@
  */
 export type ThemeMode = 'dark' | 'light';
 
+/** 涨跌色方案：A股红涨 / 国际绿涨 / 色弱蓝橙 */
+export type UpDownScheme = 'cn' | 'intl' | 'colorblind';
+
 export interface ColorScheme {
   background: string;
   surface: string;
@@ -69,8 +72,17 @@ export const LightColors: ColorScheme = {
   surfaceMuted: '#F2F4F3',
 };
 
-export function getColors(mode: ThemeMode): ColorScheme {
-  return mode === 'light' ? LightColors : DarkColors;
+export function getColors(mode: ThemeMode, scheme: UpDownScheme = 'cn'): ColorScheme {
+  const base = mode === 'light' ? LightColors : DarkColors;
+  if (scheme === 'cn') return base;
+  if (scheme === 'intl') {
+    return { ...base, up: base.down, down: base.up };
+  }
+  // colorblind: 蓝涨橙跌（亮暗均适配）
+  if (mode === 'light') {
+    return { ...base, up: '#2563EB', down: '#EA580C' };
+  }
+  return { ...base, up: '#60A5FA', down: '#FB923C' };
 }
 
 /** 默认（向后兼容）导出暗色，避免既有 import { colors } 报错。 */

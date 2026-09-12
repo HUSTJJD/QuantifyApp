@@ -46,6 +46,7 @@ export const StorageKeys = {
   SIGNAL_CONFIG: 'app.signal.config',
   STRATEGY_PROFILES: 'app.strategy.profiles',
   THEME_MODE: 'app.theme.mode',
+  UPDOWN_SCHEME: 'app.theme.updown',
   ALERT_HISTORY: 'app.alert.history',
   SEARCH_HISTORY: 'app.search.history',
 } as const;

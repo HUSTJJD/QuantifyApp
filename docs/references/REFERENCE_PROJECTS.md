@@ -15,6 +15,7 @@
 | react-native-kline-chart | `../react-native-kline-chart` | RN K 线蜡烛图 | Skia + Reanimated | **已替换 native-kline-view**；仅蜡烛+MA |
 | OpenStock | `../OpenStock` | 开源股票平台 | Next.js + shadcn + Finnhub + TradingView | 全局搜索/快捷面板、告警、onboarding、邮件摘要 |
 | Opptrix | `../Opptrix` | 多市场 AI 投研工作台 | Vite React + 自研 Token/双主题 | Token 三层架构、iOS 移动设计语言、关注分组摘要、任务进度 |
+| streetmerchant | 无本地克隆（GitHub jef/streetmerchant） | 24/7 库存探测+通知 | Node + 声明式 store 适配 | 通知扇出、指数退避、命中冷却、轮询卫生 |
 
 ---
 
@@ -174,6 +175,16 @@ Next.js 15 + shadcn/ui + Tailwind + Better Auth + MongoDB + Finnhub + TradingVie
 3. 个股情绪/新闻源（若 SDK 可覆盖）
 4. 设置项对齐（货币、基准、通知开关）
 
+### 二次深挖（告警 / 搜索）
+
+| 模式 | 说明 | RN 映射 |
+|------|------|---------|
+| 告警生命周期 | `active / triggered / expiresAt`（默认 90 天） | `userAlertRules` 状态与过期 |
+| 创建告警预填价 | 先 getQuote 再开 Modal，阈值预填现价 | AlertRules 新建流 |
+| 搜索防抖+空态 | 300ms debounce + 热门股 | SearchScreen |
+
+**路径**：`components/watchlist/{CreateAlertModal,AlertsPanel}.tsx`、`lib/inngest/functions.ts`、`database/models/alert.model.ts`
+
 ---
 
 ## 7. Opptrix
@@ -215,6 +226,104 @@ Vite + React（`client-ui`）+ Node 服务；自研三层 Design Token + Opptrix
 
 - `openspec/changes/mobile-surface-v1`：Token 补全、自选分组摘要条、列表密度
 - `openspec/changes/quant-visibility`：任务「计划—进度—结果」进工作流页
+
+### 二次深挖（决策卡 / 自选雷达 / 调度 / Onboarding）
+
+| 模式 | 说明 | RN 映射 |
+|------|------|---------|
+| **StockDecisionCard** | 综合分 → A/B+/B/C/D 分档 + 论点/风险 bullets + legend；策略倾向多空计数；tone 与涨跌色解耦 | 个股详情顶部决策卡；信号详情复用 |
+| **自选雷达摘要行** | 第二行压成「行业 · 评分档 · 策略倾向 · PE/PB 分位 · 主力净额」 | Watchlist 行副标题 |
+| **加自选报价宽限** | 新加自选立刻 prefetch；失败用 addedPrice；15s 宽限不显示失败态 | `useQuotes` 加自选路径 |
+| **Discover Profile × regime** | panic/cautious/neutral/euphoria → 推荐策略 ID 列表 | 策略 Tab「市况 → 推荐模板」chips |
+| **统一 ScheduledJob** | once/interval/cron + run 历史 + per-job notify + webhook HMAC 重试 | `quant-scheduler` 内核 |
+| **Onboarding 版本文案** | `ONBOARDING_RELEASE_BY_VERSION` + 老用户 updateLine；禁写技术细节 | 升级欢迎屏；价值轮播 |
+| Mobile chrome 常量 | hit=40、title 单行省略 | 二级页顶栏 token |
+
+**路径**：分支 `feat/watchlist-groups-panel-design` 下 `client-ui/src/market/{StockDecisionCard,watchlistRadar,discoverProfiles}.ts(x)`；`packages/schedule/src/{service,notify,webhook-retry,next-run}.ts`；`client-ui/src/onboarding/manifest.ts`
+
+### 已映射提案（追加）
+
+- `stock-decision-card`、`watchlist-radar-line`
+- `quant-scheduler`、`alert-notify-harden`、`eod-picker-cards`
+
+### 不适用（补充）
+
+Agent 聊天 / MCP 向导 / shell 计划任务 / news OCR 富化管线 / 桌面三栏。
+
+---
+
+## 8. 商业交易 App 模式（无本地克隆，公开产品调研 2025–2026）
+
+> 仅学习交互/信息架构/视觉安全，**不抄代码**。合规边界见「不适合本 App」。
+
+| 产品 | 参考价值 | 关键模式 |
+|------|----------|----------|
+| moomoo / 富途牛牛 | 选股器、模拟盘同构、Dark 默认 | Screener 多维过滤 + 预设套餐可保存；模拟盘 $1M + 工具齐全 |
+| Webull | paperTrade 安全设计、图表手势 | 模拟盘独立视觉标识 + 一键重置；60+ 指标；Quant Rating |
+| Tiger Trade | 量化 Lab、异动榜 | 策略心智 + 开放 API；多市场统一账户感 |
+| 同花顺 | A 股信息密度、问财 NL 选股 | 「一句话 → 规则 → 列表」；尾盘/概念标签 |
+| 东方财富 | 主力资金、涨跌停一览 | 资金流与情绪指标前置 |
+| 雪球 | 组合净值心智 | 轻量「晒净值」而非 UGC（本 App 不做社区） |
+
+### 最值得抄（按 ROI）
+
+1. Dark 交易主题 + 涨跌色可配置（红涨绿跌 / 绿涨红跌）
+2. 模拟盘 **PAPER 视觉隔离** + 重置一步可达（Webull）
+3. 条件选股套餐 + 卡片流（moomoo Screener + stock-dashboard EodPicker）
+4. 净值 vs 大盘曲线（头部 App 通用）
+5. 行业/集中度归因（ghostfolio X-Ray 的组合侧）
+
+### 不适合本 App
+
+- 券商实盘下单 / 出入金 / 融资融券 / IPO
+- 股吧式社区信息流
+- 理财商城 / 基金销售
+- Level2 逐笔全量渲染
+
+### 已映射提案
+
+- `portfolio-attribution-v2`：行业归因 + 净值 vs 沪深300
+- `eod-picker-cards`：尾盘套餐卡片流 + 14:30 自动扫描
+- `sim-paper-deep`：模拟盘绩效 + PAPER 视觉隔离
+- `alert-notify-harden`：告警状态机 + 冷却 + 扇出 + 退避（streetmerchant + OpenStock）
+
+### 公开参考
+
+- https://www.moomoo.com/screener · https://www.moomoo.com/sg/papertrading
+- https://www.webull.com/paper-trading · https://www.webull.com/charts-tools
+- https://www.10jqka.com.cn/ · https://wap.eastmoney.com/
+
+---
+
+## 9. streetmerchant（GitHub，无本地克隆）
+
+**仓库**：https://github.com/jef/streetmerchant  
+**定位**：24/7 商品有货探测 + 多通道通知（**明确不代下单**）。MIT。
+
+### 核心架构
+
+| 模块 | 机制 | 对 QuantifyApp 的价值 |
+|------|------|----------------------|
+| `src/store/model/*.ts` | 声明式 Store 适配（labels/links/backoff） | ≈ DataSource 能力声明 |
+| `src/store/lookup.ts` | 按 store 独立 `setTimeout` 循环 + 并发 + shuffle | ≈ `watchlist/poller.ts` 错峰拉自选 |
+| `helpers/backoff.ts` | 403/429 指数退避，成功减半 | 行情源限流 |
+| `IN_STOCK_WAIT_TIME` | 命中后冷却 N 秒 | 告警 per-rule 静默窗 |
+| `src/messaging/notification.ts` | 一行扇出 20+ 通道；未配置跳过 | 插件化 `notify/channels/*` |
+| dotenv + web API | 配置热改 + 状态矩阵 | 设置改 interval 无泄漏重启 poller |
+
+### 通知通道（扇出设计参考）
+
+优先：sound / ntfy / discord / email / SMS / APNs  
+非优先：slack / telegram / mqtt / pushover / bark 类…  
+**App 侧优先**：应用内 AlertCenter、系统本地通知、可选 Telegram/Bark Webhook。
+
+### 不适合照搬
+
+puppeteer、自动加购、captcha 绕过、proxy 池、Cloudflare 对抗——与行情无关且有合规风险。仅保留「只探测 + 通知、不代操作」边界（与本 App「不实盘下单」一致）。
+
+### 已映射提案
+
+- `alert-notify-harden`：通知扇出 + 退避 + 命中冷却 + 告警生命周期（叠加 OpenStock 状态机）
 
 ---
 

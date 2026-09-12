@@ -29,6 +29,8 @@ import type { AdjustMode } from '@/quant/adjustment';
 import { displaySymbol, isIndexSymbol } from '@/domain';
 import type { KlinePeriod, OrderBook, Symbol, Valuation, FinancialReport, Quote } from '@/data/api';
 import { KLineChart, Card, Section } from '@/components';
+import { DecisionCard } from './DecisionCard';
+import { computeSignal } from '@/quant/signals';
 import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/assets/icons';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -58,6 +60,8 @@ import {
 import { buildNewsFeed, NormalizedNews } from '@/features/stock/news';
 import { NewsItem, AnnouncementItem } from '@/data/api/types';
 import { getWatchlist, addToWatchlist, removeFromWatchlist } from '@/data/repositories/WatchlistRepository';
+import { setAddedPrice } from '@/features/watchlist/addedPriceCache';
+import { toFullCode } from '@/domain';
 import { openThsDetail } from '@/utils/thsDeepLink';
 
 /** 周期 tab：分时 + 日/周/月 */
@@ -231,9 +235,11 @@ export function StockDetailScreen({
       setWatched(false);
     } else {
       await addToWatchlist(symbol);
+      const last = q?.last ?? 0;
+      if (last > 0) setAddedPrice(toFullCode(symbol), last);
       setWatched(true);
     }
-  }, [watched, symbol]);
+  }, [watched, symbol, q?.last]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -264,6 +270,15 @@ export function StockDetailScreen({
     () => computeDerivedMetrics(valView, metrics, { earningsGrowthPct: growthPct }),
     [valView, metrics, growthPct],
   );
+  const decisionSignals = useMemo(() => {
+    if (isIndex || !kline || kline.length < 30) return [];
+    try {
+      const sig = computeSignal(symbol, kline, q ?? null);
+      return [sig];
+    } catch {
+      return [];
+    }
+  }, [isIndex, kline, q, symbol]);
 
   const styles = makeStyles(c);
 
@@ -332,6 +347,13 @@ export function StockDetailScreen({
             <GridItem label="涨跌额" value={q?.change != null ? `${q.change > 0 ? '+' : ''}${q.change.toFixed(2)}` : '--'} />
           </View>
         </View>
+
+        {/* ── 决策卡 ── */}
+        {!isIndex && decisionSignals.length > 0 && (
+          <View style={{ paddingHorizontal: spacing.md, marginTop: spacing.sm }}>
+            <DecisionCard signals={decisionSignals} />
+          </View>
+        )}
 
         {/* ── 周期切换：分时/日K/周K/月K（板块指数无分时） ── */}
         <View style={styles.periodRow}>

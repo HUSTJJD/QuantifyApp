@@ -23,6 +23,15 @@ import { scheduleBackgroundSync } from '@/data/sync/scheduler';
 import { OnboardingScreen } from '@/features/onboarding/OnboardingScreen';
 import { DigestBridge } from '@/features/notify/DigestBridge';
 import { getAppPrefs } from '@/settings/appPrefs';
+import '@/features/notify/localDigest';
+import '@/features/scanner/EodPickerScreen';
+import {
+  startSchedulerTicker,
+  stopSchedulerTicker,
+  ensureDefaultJobs,
+  setJobNotifySink,
+} from '@/quant/scheduler';
+import { sendNotify } from '@/features/notify/channels';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 /** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。
@@ -60,11 +69,26 @@ function App(): React.JSX.Element {
     startStrategyEngine();
     // 后台全市场增量同步（全市场标的库 + 日 K 增量；延迟执行不阻塞启动，单进程只跑一轮）
     scheduleBackgroundSync();
+    // 统一本地调度器
+    ensureDefaultJobs().catch(() => undefined);
+    setJobNotifySink((job, run) => {
+      if (run.status === 'ok' || run.status === 'error') {
+        void sendNotify({
+          title: job.title,
+          body: run.summary || run.error || run.status,
+          data: { jobId: job.id, kind: job.kind, status: run.status },
+        });
+      }
+    });
+    startSchedulerTicker();
     // 切回前台时再清理一次过期行情缓存，确保旧快照不会跨日残留
     const appStateSub = AppState.addEventListener('change', (next) => {
       if (next === 'active') marketData.pruneQuotesCache().catch(() => undefined);
     });
-    return () => appStateSub.remove();
+    return () => {
+      appStateSub.remove();
+      stopSchedulerTicker();
+    };
   }, []);
 
   if (!fontsLoaded) {

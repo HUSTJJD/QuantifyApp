@@ -30,6 +30,12 @@ import { quoteFeed } from '@/data/QuoteFeed';
 import { quantStore } from '@/data/db/QuantStore';
 import { fireDigestNow } from '@/features/notify/localDigest';
 import { fireDigestAlert } from '@/features/notify/DigestBridge';
+import {
+  getChannelPrefs,
+  setChannelPrefs,
+  sendTestNotify,
+  type NotifyChannelPrefs,
+} from '@/features/notify/channels';
 
 const INTERVAL_OPTIONS = [3, 5, 10, 15, 30];
 const RATIO_OPTIONS = [
@@ -50,7 +56,7 @@ export function SettingsScreen({
   onOpenDebug?: () => void;
   onOpenApiStats?: () => void;
 }): React.JSX.Element {
-  const { mode, toggle, colors } = useAppTheme();
+  const { mode, toggle, colors, upDownScheme, setUpDownScheme } = useAppTheme();
   const [sources, setSources] = useState<{ id: string; label: string }[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [apiKey, setApiKey] = useState<string>('');
@@ -58,6 +64,8 @@ export function SettingsScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [prefs, setPrefs] = useState<AppPrefs>({ ...DEFAULT_PREFS });
   const [clearing, setClearing] = useState(false);
+  const [channels, setChannels] = useState<NotifyChannelPrefs | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
   const insets = useSafeAreaInsets();
   const { stats, running, progress, lastSyncAt, triggerSync, refreshStats } = useSyncStatus();
   const styles = makeStyles(colors);
@@ -72,6 +80,10 @@ export function SettingsScreen({
     getAppPrefs().then((p) => {
       setPrefs(p);
       primeAppPrefs(p);
+    });
+    getChannelPrefs().then((c) => {
+      setChannels(c);
+      setWebhookUrl(c.webhookUrl);
     });
   }, [loadSettings]);
 
@@ -166,6 +178,26 @@ export function SettingsScreen({
         <Text style={styles.sourceLabel}>深色模式</Text>
         <Toggle on={mode === 'dark'} onChange={() => toggle()} />
       </View>
+      <Text style={styles.fieldLabel}>涨跌色</Text>
+      <View style={styles.chipRow}>
+        {(
+          [
+            { key: 'cn', label: '红涨绿跌' },
+            { key: 'intl', label: '绿涨红跌' },
+            { key: 'colorblind', label: '蓝涨橙跌' },
+          ] as const
+        ).map((o) => (
+          <TouchableOpacity
+            key={o.key}
+            style={[styles.chip, upDownScheme === o.key && styles.chipActive]}
+            onPress={() => setUpDownScheme(o.key)}
+          >
+            <Text style={[styles.chipText, upDownScheme === o.key && styles.chipTextActive]}>
+              {o.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <Text style={styles.sectionTitle}>通知</Text>
       <View style={styles.themeRow}>
@@ -204,6 +236,61 @@ export function SettingsScreen({
           onChange={() => savePrefs({ notifyPriceAlert: !prefs.notifyPriceAlert })}
         />
       </View>
+
+      <Text style={styles.sectionTitle}>通知通道</Text>
+      {channels && (
+        <>
+          <View style={styles.themeRow}>
+            <Text style={styles.sourceLabel}>应用内</Text>
+            <Toggle
+              on={channels.inApp}
+              onChange={async () => {
+                const n = await setChannelPrefs({ inApp: !channels.inApp });
+                setChannels(n);
+              }}
+            />
+          </View>
+          <View style={styles.themeRow}>
+            <Text style={styles.sourceLabel}>Webhook（Telegram/Bark）</Text>
+            <Toggle
+              on={channels.webhook}
+              onChange={async () => {
+                const n = await setChannelPrefs({ webhook: !channels.webhook });
+                setChannels(n);
+              }}
+            />
+          </View>
+          {channels.webhook && (
+            <TextInput
+              value={webhookUrl}
+              onChangeText={setWebhookUrl}
+              onBlur={async () => {
+                const n = await setChannelPrefs({ webhookUrl: webhookUrl.trim() });
+                setChannels(n);
+              }}
+              placeholder="https://…"
+              placeholderTextColor={colors.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[styles.input, { color: colors.text, borderColor: colors.border }]}
+            />
+          )}
+          <TouchableOpacity
+            style={[styles.themeRow, { paddingVertical: spacing.sm }]}
+            onPress={async () => {
+              try {
+                await sendTestNotify();
+                Alert.alert('已发送', '请检查已启用的通道');
+              } catch (e) {
+                Alert.alert('试发失败', e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            <Text style={[styles.sourceLabel, { color: colors.primary }]}>试发通知</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
       <TouchableOpacity
         style={[styles.themeRow, { paddingVertical: spacing.sm }]}
         onPress={() => {

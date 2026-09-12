@@ -1,18 +1,17 @@
 /**
- * 通知桥：把盘后摘要接入 AlertCenter 的应用内 Snackbar。
- * 后续换 expo-notifications 时只需替换本文件的 sink。
+ * 通知桥：应用内 Snackbar + 通道扇出的 inApp 实现。
  */
 import React, { useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
 import { setDigestSink, startDigestScheduler, stopDigestScheduler } from './localDigest';
+import { setInAppNotifier } from './channels';
 
 export function DigestBridge(): null {
   const { notify } = useAlertCenter();
 
   useEffect(() => {
-    setDigestSink((title, body) => {
-      // 用 AlertCenter 的 snackbar 通道（事件结构对齐 AlertEvent 简化版）
+    const push = (title: string, body: string) => {
       notify([
         {
           ruleId: 'digest',
@@ -23,11 +22,14 @@ export function DigestBridge(): null {
           time: Date.now(),
         },
       ]);
-    });
+    };
+    setDigestSink(push);
+    setInAppNotifier((p) => push(p.title, p.body));
     startDigestScheduler();
     return () => {
       stopDigestScheduler();
       setDigestSink(() => undefined);
+      setInAppNotifier(null);
     };
   }, [notify]);
 

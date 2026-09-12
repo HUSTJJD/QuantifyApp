@@ -24,6 +24,12 @@ import { quantStore } from '@/data/db/QuantStore';
 import { getAll as getAllSignals } from '@/quant/SignalStore';
 import { buildCandidatePool, filterActionableSignals } from '@/quant/candidatePool';
 import { SimAccountRepo } from '@/simulation';
+import {
+  loadRegime,
+  REGIME_LABEL,
+  REGIME_PRESETS,
+  type RegimeResult,
+} from '@/quant/regime';
 
 export function StrategiesScreen({
   onEdit,
@@ -33,6 +39,8 @@ export function StrategiesScreen({
   onOpenStock,
   onOpenScanner,
   onOpenWorkflow,
+  onOpenEod,
+  onCreateFromTemplate,
 }: {
   onEdit: (id: string) => void;
   onCreate: () => void;
@@ -41,6 +49,8 @@ export function StrategiesScreen({
   onOpenStock?: (key: string) => void;
   onOpenScanner?: () => void;
   onOpenWorkflow?: () => void;
+  onOpenEod?: () => void;
+  onCreateFromTemplate?: (templateId: string) => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -51,10 +61,14 @@ export function StrategiesScreen({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [simMeta, setSimMeta] = useState<Record<string, { pos: number; trades: number }>>({});
   const [pulse, setPulse] = useState({ hits: 0, pool: 0, signals: 0, followed: 0 });
+  const [regime, setRegime] = useState<RegimeResult | null>(null);
 
   const load = useCallback(async () => {
     const ps = await getProfiles();
     setProfiles(ps);
+    void loadRegime()
+      .then(setRegime)
+      .catch(() => setRegime(null));
     const meta: Record<string, { pos: number; trades: number }> = {};
     for (const p of ps) {
       if (p.autoTrade) {
@@ -190,6 +204,43 @@ export function StrategiesScreen({
         </View>
       </TouchableOpacity>
 
+      {/* 市况推荐（regime-recommend-chips） */}
+      {regime && (
+        <Card style={styles.pulseCard}>
+          <View style={styles.pulseHead}>
+            <Text style={styles.pulseTitle}>市况 {REGIME_LABEL[regime.regime]}</Text>
+            <Text style={styles.pulseGoText}>仅供参考</Text>
+          </View>
+          <Text style={styles.eventMsg}>{regime.reason}</Text>
+          {regime.regime !== 'unknown' && (
+            <>
+              <View style={[styles.quickRow, { marginTop: spacing.sm, marginBottom: 0 }]}>
+                {REGIME_PRESETS[regime.regime].templateIds.map((tid) => {
+                  const t = STRATEGIES.find((s) => s.id === tid);
+                  if (!t) return null;
+                  return (
+                    <TouchableOpacity
+                      key={tid}
+                      style={styles.quickBtn}
+                      onPress={() => {
+                        if (onCreateFromTemplate) onCreateFromTemplate(tid);
+                        else onCreate();
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.quickText}>{t.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={[styles.eventMsg, { marginTop: spacing.xs }]}>
+                {REGIME_PRESETS[regime.regime].note}
+              </Text>
+            </>
+          )}
+        </Card>
+      )}
+
       {(onOpenScanner || onOpenWorkflow) && (
         <View style={styles.quickRow}>
           {onOpenScanner && (
@@ -202,6 +253,12 @@ export function StrategiesScreen({
             <TouchableOpacity style={styles.quickBtn} onPress={onOpenWorkflow} activeOpacity={0.8}>
               <Icon name={Icons.strategy} size="md" color="primary" />
               <Text style={styles.quickText}>候选 → 跟单</Text>
+            </TouchableOpacity>
+          )}
+          {onOpenEod && (
+            <TouchableOpacity style={styles.quickBtn} onPress={onOpenEod} activeOpacity={0.8}>
+              <Icon name={Icons.clock} size="md" color="primary" />
+              <Text style={styles.quickText}>尾盘选股</Text>
             </TouchableOpacity>
           )}
         </View>

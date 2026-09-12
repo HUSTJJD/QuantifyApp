@@ -20,6 +20,9 @@ import { useSimAccount, symbolKey } from '@/hooks/useSimAccount';
 import { calcFee, DEFAULT_INIT_CASH, round2 } from '@/simulation';
 import { toFullCode } from '@/domain';
 import type { Trade, Order, SimPosition } from '@/simulation';
+import { PaperBadge } from './PaperBadge';
+import { NavVsBenchmark } from '@/features/asset/NavVsBenchmark';
+import { getSimSnapshots, addSimSnapshot, resetSimSnapshots } from './simNavStore';
 
 const SIDE_TEXT: Record<string, string> = { buy: '买入', sell: '卖出' };
 const STATUS_TEXT: Record<string, string> = {
@@ -42,6 +45,24 @@ export function SimulationScreen(): React.JSX.Element {
   const { data: quotes } = useQuotes(watchSymbols, 'stock', focused);
 
   const [tab, setTab] = React.useState<Tab>('positions');
+  const [simSnaps, setSimSnaps] = React.useState<{ ts: number; total: number }[]>([]);
+
+  React.useEffect(() => {
+    if (!focused || !summary || !(summary.totalAsset > 0)) return;
+    let cancelled = false;
+    (async () => {
+      await addSimSnapshot({ ts: Date.now(), total: summary.totalAsset });
+      const list = await getSimSnapshots();
+      if (!cancelled) setSimSnaps(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focused, summary?.totalAsset]);
+
+  React.useEffect(() => {
+    getSimSnapshots().then(setSimSnaps).catch(() => undefined);
+  }, []);
 
   const onReset = () => {
     Alert.alert('重置模拟盘', `将清空所有持仓与资金，恢复初始 ${DEFAULT_INIT_CASH.toLocaleString()} 元？`, [
@@ -49,7 +70,11 @@ export function SimulationScreen(): React.JSX.Element {
       {
         text: '重置',
         style: 'destructive',
-        onPress: () => reset(DEFAULT_INIT_CASH),
+        onPress: async () => {
+          await reset(DEFAULT_INIT_CASH);
+          await resetSimSnapshots();
+          setSimSnaps([]);
+        },
       },
     ]);
   };
@@ -62,6 +87,7 @@ export function SimulationScreen(): React.JSX.Element {
       style={[styles.root, { backgroundColor: colors.background }]}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }]}
     >
+      <PaperBadge />
       {/* 资产总览 */}
       <View style={[styles.summaryCard, { backgroundColor: colors.surface }]}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>模拟总资产（元）</Text>
@@ -95,6 +121,12 @@ export function SimulationScreen(): React.JSX.Element {
           />
         </View>
       </View>
+
+      {simSnaps.length >= 2 && (
+        <View style={{ marginTop: spacing.md }}>
+          <NavVsBenchmark snapshots={simSnaps} title="模拟净值 vs 基准" />
+        </View>
+      )}
 
       {/* Tab 切换 */}
       <View style={[styles.tabs, { borderColor: colors.border }]}>
@@ -206,26 +238,57 @@ function OrdersTab({ orders, colors }: { orders: Order[]; colors: ReturnType<typ
 
 function TradesTab({ trades, colors }: { trades: Trade[]; colors: ReturnType<typeof useAppTheme>['colors'] }): React.JSX.Element {
   if (trades.length === 0) return <Empty text="暂无成交" colors={colors} />;
+  // 按日分组（时间线）
+  const groups: { day: string; items: Trade[] }[] = [];
+  for (const t of [...trades].sort((a, b) => b.ts - a.ts)) {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(t.ts);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.items.push(t);
+    else groups.push({ day, items: [t] });
+  }
   return (
     <>
-      {trades.map((t) => {
-        const fee = calcFee(t.side, t.amount);
-        return (
-          <View key={t.id} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.itemTop}>
-              <Text style={[styles.code, { color: colors.text }]}>{toFullCode(t.symbol)}</Text>
-              <Text style={[styles.tag, { color: t.side === 'buy' ? colors.up : colors.down }]}>
-                {SIDE_TEXT[t.side]} {t.price.toFixed(2)} × {t.quantity}
-              </Text>
-            </View>
-            <View style={styles.itemMid}>
-              <Cell label="金额" value={t.amount.toFixed(2)} color={colors.textSecondary} />
-              <Cell label="费用" value={fee.toFixed(2)} color={colors.textSecondary} />
-              <Cell label="现金" value={`${t.cashDelta >= 0 ? '+' : ''}${t.cashDelta.toFixed(2)}`} color={colors.textSecondary} />
-            </View>
-          </View>
-        );
-      })}
+      {groups.map((g) => (
+        <View key={g.day}>
+          <Text style={[styles.dayHead, { color: colors.textSecondary }]}>{g.day}</Text>
+          {g.items.map((t) => {
+            const fee = calcFee(t.side, t.amount);
+            const time = new Date(t.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            return (
+              <View
+                key={t.id}
+                style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              >
+                <View style={styles.itemTop}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: t.side === 'buy' ? colors.up : colors.down,
+                      }}
+                    />
+                    <Text style={[styles.code, { color: colors.text }]}>{toFullCode(t.symbol)}</Text>
+                  </View>
+                  <Text style={[styles.tag, { color: t.side === 'buy' ? colors.up : colors.down }]}>
+                    {time} · {SIDE_TEXT[t.side]} {t.price.toFixed(2)} × {t.quantity}
+                  </Text>
+                </View>
+                <View style={styles.itemMid}>
+                  <Cell label="金额" value={t.amount.toFixed(2)} color={colors.textSecondary} />
+                  <Cell label="费用" value={fee.toFixed(2)} color={colors.textSecondary} />
+                  <Cell
+                    label="现金"
+                    value={`${t.cashDelta >= 0 ? '+' : ''}${t.cashDelta.toFixed(2)}`}
+                    color={colors.textSecondary}
+                  />
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ))}
     </>
   );
 }
@@ -263,6 +326,13 @@ const styles = StyleSheet.create({
   tabText: { fontSize: fontSize.md, fontWeight: '600' },
   tabSpacer: { flex: 1 },
   resetText: { fontSize: fontSize.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  dayHead: {
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    marginLeft: spacing.xs,
+  },
   item: { borderRadius: radius.md, borderWidth: 1, padding: spacing.md, marginBottom: spacing.sm },
   itemTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
   code: { fontSize: fontSize.md, fontWeight: '700' },
