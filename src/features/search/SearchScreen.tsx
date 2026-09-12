@@ -84,7 +84,7 @@ export function SearchScreen({
       } finally {
         setLoading(false);
       }
-    }, 200);
+    }, 300);
     return () => clearTimeout(timer);
   }, [keyword]);
 

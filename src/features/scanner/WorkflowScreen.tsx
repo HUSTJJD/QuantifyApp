@@ -72,7 +72,14 @@ export function WorkflowScreen({
       const candidatePool = buildCandidatePool(hitRows);
       setPool(candidatePool);
       const time = new Date(snap.createdAt).toLocaleString('zh-CN');
-      setSnapshotInfo(`${time} · 命中 ${snap.hitCount} · 扫描 ${snap.total}`);
+      let sourceLabel = '';
+      try {
+        const crit = JSON.parse(snap.criteria) as { source?: string };
+        if (crit?.source === 'eod') sourceLabel = '尾盘 · ';
+      } catch {
+        // ignore
+      }
+      setSnapshotInfo(`${sourceLabel}${time} · 命中 ${snap.hitCount} · 扫描 ${snap.total}`);
 
       const allSignals = await getAllSignals();
       const actionable = filterActionableSignals(allSignals, candidatePool);

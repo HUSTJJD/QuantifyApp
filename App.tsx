@@ -25,6 +25,7 @@ import { DigestBridge } from '@/features/notify/DigestBridge';
 import { getAppPrefs } from '@/settings/appPrefs';
 import '@/features/notify/localDigest';
 import '@/features/scanner/EodPickerScreen';
+import '@/data/sync/registerSyncJob';
 import {
   startSchedulerTicker,
   stopSchedulerTicker,

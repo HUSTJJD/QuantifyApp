@@ -14,6 +14,7 @@ import { toFullCode } from '@/domain';
 import { spacing, fontSize, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag } from '@/components';
+import { PaperBadge } from '@/features/simulation/PaperBadge';
 
 export function StrategySimScreen({
   onBack,
@@ -74,6 +75,7 @@ export function StrategySimScreen({
           <Text style={styles.centerText}>加载中…</Text>
         ) : (
           <>
+            <PaperBadge label="策略专属 · PAPER" />
             <Text style={styles.title}>{profile.name}</Text>
             <Text style={styles.sub}>
               {profile.enabled && profile.autoTrade ? '自动交易已开启' : '自动交易未开启（仅手动触发时成交）'} · 独立于全局模拟盘
