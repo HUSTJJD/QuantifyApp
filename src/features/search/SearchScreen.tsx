@@ -20,6 +20,7 @@ import { storage, StorageKeys } from '@/data/db/storage';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { toFullCode } from '@/domain';
+import { matchNlScan, NL_SCAN_HINTS } from '@/quant/nlScan';
 
 const HOT_SEARCHES: { code: string; exchange: Symbol['exchange']; name: string }[] = [
   { code: '600519', exchange: 'SH', name: '贵州茅台' },
@@ -39,9 +40,12 @@ type SearchGroup = { type: 'stock' | 'index' | 'fund'; title: string; items: Ins
 export function SearchScreen({
   onBack,
   onOpenStock,
+  onOpenNlScan,
 }: {
   onBack: () => void;
   onOpenStock: (symbol: Symbol) => void;
+  /** NL 关键词 → 打开尾盘选股（可带预选套餐与额外条件） */
+  onOpenNlScan?: (presetId: string, extra?: Record<string, number | boolean>) => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -120,6 +124,7 @@ export function SearchScreen({
   }
 
   const showResults = keyword.trim().length > 0;
+  const nlMatch = matchNlScan(keyword);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -137,6 +142,20 @@ export function SearchScreen({
           />
         </View>
       </View>
+
+      {showResults && nlMatch && onOpenNlScan ? (
+        <TouchableOpacity
+          style={[styles.nlCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={() => onOpenNlScan(nlMatch.presetId, nlMatch.extra)}
+          activeOpacity={0.8}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.nlTitle, { color: colors.primary }]}>{nlMatch.label}</Text>
+            <Text style={[styles.nlHint, { color: colors.textSecondary }]}>{nlMatch.hint}</Text>
+          </View>
+          <Icon name={Icons.chevronRight} size={2} color="primary" />
+        </TouchableOpacity>
+      ) : null}
 
       {showResults ? (
         <FlatList
@@ -218,6 +237,25 @@ export function SearchScreen({
             }
             return null;
           }}
+          ListFooterComponent={
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>试试说条件</Text>
+              <View style={styles.hotGrid}>
+                {NL_SCAN_HINTS.map((h) => (
+                  <TouchableOpacity
+                    key={h}
+                    style={[styles.hotTag, { borderColor: colors.primary }]}
+                    onPress={() => setKeyword(h)}
+                  >
+                    <Text style={[styles.hotText, { color: colors.primary }]}>{h}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.nlHint, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                输入「放量 / 金叉 / 均线多头」等，可直接打开对应扫描
+              </Text>
+            </View>
+          }
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -237,6 +275,17 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     },
     back: { color: colors.primary, fontSize: fontSize.md },
     searchWrap: { flex: 1 },
+    nlCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginHorizontal: spacing.md,
+      marginTop: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+    },
+    nlTitle: { fontSize: fontSize.md, fontWeight: '700' },
+    nlHint: { fontSize: fontSize.xs, marginTop: 2 },
     listContent: { padding: spacing.md, paddingBottom: spacing.xl },
     group: { marginBottom: spacing.lg },
     groupTitle: {

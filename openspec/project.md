@@ -54,11 +54,12 @@
 可选后续：~~涨跌色配置~~ 已交付；~~告警生命周期 UI + 轮询退避~~ 已交付；~~模拟成交时间线~~ 已交付；~~typecheck:app + QA 清单~~ 已交付。
 
 **仍待交付**：
-1. ~~regime-recommend-chips~~ 已交付：市况判定 + 策略模板推荐 chips
-2. ~~加自选报价宽限 / 雷达行业~~ 已交付：addedPriceCache + peekIndustryOf
+1. ~~regime-recommend-chips~~ 已交付
+2. ~~加自选报价宽限 / 雷达行业~~ 已交付
 3. ~~告警创建预填价~~ 已交付
-4. NL 筛股（问财式）— 可选后续
+4. ~~NL 筛股（轻量关键词→扫描）~~ 已交付：`matchNlScan` + 搜索页入口
 5. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题
+6. 可选：NL 扩展更多条件、策略绩效曲线进专属模拟盘
 
 ## 质量门
 

@@ -59,7 +59,7 @@ export type RootStackParamList = {
   Backtest: undefined;
   Scanner: undefined;
   Workflow: undefined;
-  EodPicker: undefined;
+  EodPicker: { presetId?: string; extra?: Record<string, number | boolean> };
   Automation: undefined;
   Search: undefined;
   AlertRules: undefined;
@@ -171,7 +171,7 @@ function MainTabs(): React.JSX.Element {
               }}
               onOpenScanner={() => root?.navigate('Scanner')}
               onOpenWorkflow={() => root?.navigate('Workflow')}
-              onOpenEod={() => root?.navigate('EodPicker')}
+              onOpenEod={() => root?.navigate('EodPicker', {})}
             />
           );
         }}
@@ -279,10 +279,12 @@ export function AppNavigator(): React.JSX.Element {
         )}
       </Stack.Screen>
       <Stack.Screen name="EodPicker">
-        {({ navigation }: { navigation: RootNav }) => (
+        {({ navigation, route }: { navigation: RootNav; route: { params?: RootStackParamList['EodPicker'] } }) => (
           <EodPickerScreen
             onBack={() => safeGoBack(navigation)}
             onOpenDetail={(symbol) => navigation.navigate('Detail', { symbol })}
+            initialPreset={route.params?.presetId as never}
+            extraCriteria={route.params?.extra}
           />
         )}
       </Stack.Screen>
@@ -329,6 +331,9 @@ export function AppNavigator(): React.JSX.Element {
           <SearchScreen
             onBack={() => safeGoBack(navigation)}
             onOpenStock={(symbol) => navigation.navigate('Detail', { symbol })}
+            onOpenNlScan={(presetId, extra) =>
+              navigation.navigate('EodPicker', { presetId, extra })
+            }
           />
         )}
       </Stack.Screen>

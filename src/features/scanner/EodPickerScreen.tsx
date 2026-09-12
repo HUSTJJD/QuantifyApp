@@ -68,14 +68,20 @@ export const EOD_PRESETS: EodPreset[] = [
 export function EodPickerScreen({
   onBack,
   onOpenDetail,
+  initialPreset,
+  extraCriteria,
 }: {
   onBack?: () => void;
   onOpenDetail?: (symbol: Symbol) => void;
+  /** NL 入口预选套餐 */
+  initialPreset?: EodPresetId;
+  /** NL 额外条件（并入套餐 criteria） */
+  extraCriteria?: Record<string, number | boolean>;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const [presetId, setPresetId] = useState<EodPresetId>('volume_breakout');
+  const [presetId, setPresetId] = useState<EodPresetId>(initialPreset ?? 'volume_breakout');
   const [running, setRunning] = useState(false);
   const [hits, setHits] = useState<ScanHit[]>([]);
   const [durationMs, setDurationMs] = useState(0);
@@ -101,10 +107,11 @@ export function EodPickerScreen({
     setRunning(true);
     setError(null);
     try {
-      const res = await scanMarket(preset.criteria, undefined, 50);
+      const criteria = { ...preset.criteria, ...(extraCriteria ?? {}) };
+      const res = await scanMarket(criteria, undefined, 50);
       setHits(res.hits);
       setDurationMs(res.durationMs);
-      saveScanSnapshot({ ...preset.criteria, source: 'eod' } as never, res.hits, res.total, res.durationMs).catch(
+      saveScanSnapshot({ ...criteria, source: 'eod' } as never, res.hits, res.total, res.durationMs).catch(
         () => undefined,
       );
     } catch (e) {
@@ -112,7 +119,7 @@ export function EodPickerScreen({
     } finally {
       setRunning(false);
     }
-  }, [preset]);
+  }, [preset, extraCriteria]);
 
   const addOne = useCallback(async (symbol: Symbol) => {
     await addToWatchlist(symbol);
