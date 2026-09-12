@@ -2,19 +2,30 @@
  * 策略专属模拟盘：查看该策略档案独立账户的资金 / 持仓 / 成交明细，
  * 并支持一键重置回初始资金（与全局模拟盘完全隔离）。
  * 自动交易开启后，信号与风控触发会实时写入此账户。
+ * 净值：按日快照总资产（现金+持仓市值），满 2 点画净值 vs 沪深300。
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { getProfile } from '@/quant/profileStore';
 import type { StrategyProfile } from '@/quant/profile';
 import { strategyAccountRepo } from '@/quant/StrategyEngine';
 import type { SimAccount } from '@/simulation';
+import { summarize, symbolKey } from '@/simulation/calc';
 import { toFullCode } from '@/domain';
+import { useQuotes } from '@/hooks/useMarketData';
 import { spacing, fontSize, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag } from '@/components';
 import { PaperBadge } from '@/features/simulation/PaperBadge';
+import { NavVsBenchmark } from '@/features/asset/NavVsBenchmark';
+import {
+  getStrategySnapshots,
+  addStrategySnapshot,
+  resetStrategySnapshots,
+  type StrategyNavPoint,
+} from './strategyNavStore';
 
 export function StrategySimScreen({
   onBack,
@@ -25,8 +36,24 @@ export function StrategySimScreen({
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
   const [profile, setProfile] = useState<StrategyProfile | null>(null);
   const [acc, setAcc] = useState<SimAccount | null>(null);
+  const [navSnaps, setNavSnaps] = useState<StrategyNavPoint[]>([]);
+
+  const watchSymbols = useMemo(() => (acc?.positions ?? []).map((p) => p.symbol), [acc?.positions]);
+  const { data: quotes } = useQuotes(watchSymbols, 'stock', focused);
+
+  const quoteMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const q of quotes ?? []) m.set(symbolKey(q.symbol), q.last);
+    return m;
+  }, [quotes]);
+
+  const summary = useMemo(
+    () => (acc ? summarize(acc, quoteMap) : null),
+    [acc, quoteMap],
+  );
 
   const load = useCallback(async () => {
     const p = await getProfile(strategyId);
@@ -40,15 +67,35 @@ export function StrategySimScreen({
     load().catch(() => undefined);
   }, [load]);
 
+  // 每日净值快照：进入页面且总资产就绪时落一点（同日覆盖）
+  useEffect(() => {
+    if (!focused || !summary || !(summary.totalAsset > 0)) return;
+    let cancelled = false;
+    (async () => {
+      await addStrategySnapshot(strategyId, { ts: Date.now(), total: summary.totalAsset });
+      const list = await getStrategySnapshots(strategyId);
+      if (!cancelled) setNavSnaps(list);
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [focused, strategyId, summary?.totalAsset]);
+
+  useEffect(() => {
+    getStrategySnapshots(strategyId).then(setNavSnaps).catch(() => undefined);
+  }, [strategyId]);
+
   const reset = useCallback(() => {
-    Alert.alert('重置专属模拟盘', `将清空「${profile?.name}」的持仓与成交记录，并恢复初始资金。`, [
+    Alert.alert('重置专属模拟盘', `将清空「${profile?.name}」的持仓、成交与净值曲线，并恢复初始资金。`, [
       { text: '取消', style: 'cancel' },
       {
         text: '重置',
         style: 'destructive',
         onPress: async () => {
           await strategyAccountRepo(strategyId).reset();
+          await resetStrategySnapshots(strategyId);
           setAcc(await strategyAccountRepo(strategyId).get());
+          setNavSnaps([]);
         },
       },
     ]);
@@ -83,11 +130,40 @@ export function StrategySimScreen({
 
             <Card style={styles.summaryCard}>
               <View style={styles.summaryRow}>
-                <SummaryCol label="可用资金" value={acc.cash.toFixed(2)} color={colors.text} />
-                <SummaryCol label="持仓成本" value={posCost.toFixed(2)} color={colors.text} />
+                <SummaryCol
+                  label="总资产"
+                  value={summary ? summary.totalAsset.toFixed(2) : acc.cash.toFixed(2)}
+                  color={colors.text}
+                />
+                <SummaryCol
+                  label="累计收益率"
+                  value={
+                    summary
+                      ? `${summary.totalPnlPct >= 0 ? '+' : ''}${summary.totalPnlPct.toFixed(2)}%`
+                      : '0.00%'
+                  }
+                  color={
+                    !summary || summary.totalPnlPct === 0
+                      ? colors.text
+                      : summary.totalPnlPct > 0
+                        ? colors.up
+                        : colors.down
+                  }
+                />
                 <SummaryCol label="持仓数" value={String(acc.positions.length)} color={colors.up} />
               </View>
+              <View style={styles.summaryRow}>
+                <SummaryCol label="可用资金" value={acc.cash.toFixed(2)} color={colors.text} />
+                <SummaryCol label="持仓成本" value={posCost.toFixed(2)} color={colors.text} />
+                <SummaryCol label="持仓市值" value={summary ? summary.marketValue.toFixed(2) : '--'} color={colors.text} />
+              </View>
             </Card>
+
+            {navSnaps.length >= 2 && (
+              <View style={{ marginTop: spacing.md }}>
+                <NavVsBenchmark snapshots={navSnaps} title="策略净值 vs 基准" />
+              </View>
+            )}
 
             <Section title={`当前持仓（${acc.positions.length}）`} />
             {acc.positions.length === 0 ? (

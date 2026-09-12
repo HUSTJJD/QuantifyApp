@@ -60,7 +60,8 @@
 4. ~~NL 筛股（轻量关键词→扫描）~~ 已交付：`matchNlScan` + 搜索页入口
 5. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题
 6. ~~回测中心 / nextOpen / 滑点 / 资金口径~~ 已交付（backtest-center）
-7. 可选：策略绩效曲线进专属模拟盘、回测报告导出
+7. ~~策略绩效曲线进专属模拟盘~~ 已交付：strategyNavStore 按日快照 + NavVsBenchmark
+8. 可选：回测报告导出
 
 ## 质量门
 
