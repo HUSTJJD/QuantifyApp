@@ -261,4 +261,15 @@ export async function ensureDefaultJobs(): Promise<void> {
       payload: { preset: 'volume_breakout' },
     });
   }
+  if (!have.has('market_sync')) {
+    await upsertJob({
+      id: 'job_market_sync',
+      kind: 'market_sync',
+      title: '全市场增量同步',
+      enabled: false,
+      scheduleKind: 'cron',
+      schedule: { expression: '5 18 * * 1-5' },
+      notifyOverride: 'on_error',
+    });
+  }
 }
