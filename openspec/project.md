@@ -39,7 +39,13 @@
 
 ## 下一阶段主攻（按 ROI）
 
-1. **系统推送通知**（原生依赖，跨端成本高，可延后）
-2. ~~复权回测入链路~~ 已交付：`loadBacktestSeries` 不复权 + 本地因子
-3. **组合归因增强**：行业/因子维度归因、与基准对比的绩效曲线
-4. ~~除权日持仓调整~~ 已交付：`runBacktest({ corporateActions })` 分红/送转/配股
+基于外层参考 App（Opptrix / OpenStock / stock-dashboard / ghostfolio）与当前 UI 基线：
+
+1. ~~mobile-surface-v1~~ 已交付：Token / 骨架屏 / 自选密度 / FlashList / 资产页去 paper
+2. ~~quant-visibility~~ 已交付：策略 Tab 脉冲 + 快捷入口；热力图多维
+3. ~~onboarding-notify~~ 已交付：首启 3 屏 + 盘后摘要（应用内触达）
+4. **组合归因增强**：行业/因子维度归因、与基准对比的绩效曲线
+5. **尾盘选股卡片流**（quant-visibility 可选延伸，stock-dashboard EodPicker）
+6. ~~系统推送通知~~ 降级为 onboarding-notify 内的本地/应用内通知；厂商推送仍可延后
+7. ~~复权回测入链路~~ 已交付：`loadBacktestSeries` 不复权 + 本地因子
+8. ~~除权日持仓调整~~ 已交付：`runBacktest({ corporateActions })` 分红/送转/配股

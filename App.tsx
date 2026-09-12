@@ -20,6 +20,9 @@ import { startSignalEngine } from '@/quant/SignalEngine';
 import { startStrategyEngine } from '@/quant/StrategyEngine';
 import { AlertCenterProvider, PollerBridge } from '@/features/watchlist/alertCenter';
 import { scheduleBackgroundSync } from '@/data/sync/scheduler';
+import { OnboardingScreen } from '@/features/onboarding/OnboardingScreen';
+import { DigestBridge } from '@/features/notify/DigestBridge';
+import { getAppPrefs } from '@/settings/appPrefs';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 /** PaperProvider 的图标渲染器（顶层组件，避免渲染期反复重建）。
@@ -85,6 +88,14 @@ function App(): React.JSX.Element {
 /** ThemeProvider 内部：拿到主题 mode 后驱动 Paper / StatusBar。 */
 function AppInner(): React.JSX.Element {
   const { mode } = useAppTheme();
+  const [onboarded, setOnboarded] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    getAppPrefs()
+      .then((p) => setOnboarded(p.hasOnboarded))
+      .catch(() => setOnboarded(true));
+  }, []);
+
   // 用户未显式设置时跟随系统；设置后跟随用户（ThemeProvider 默认 dark，这里以 mode 为准）
   const isDark = mode === 'light' ? false : true;
 
@@ -92,12 +103,26 @@ function AppInner(): React.JSX.Element {
     ? { ...MD3DarkTheme, colors: { ...MD3DarkTheme.colors, primary: '#11BEBC' } }
     : { ...MD3LightTheme, colors: { ...MD3LightTheme.colors, primary: '#00A19F' } };
 
+  if (onboarded === null) {
+    return <View style={styles.root} />;
+  }
+
+  if (!onboarded) {
+    return (
+      <PaperProvider theme={paperTheme} settings={{ icon: PaperIcon }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <OnboardingScreen onDone={() => setOnboarded(true)} />
+      </PaperProvider>
+    );
+  }
+
   return (
     <PaperProvider theme={paperTheme} settings={{ icon: PaperIcon }}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <NavigationContainer>
         <AppNavigator />
       </NavigationContainer>
+      <DigestBridge />
     </PaperProvider>
   );
 }

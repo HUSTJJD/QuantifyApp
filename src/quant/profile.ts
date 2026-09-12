@@ -14,14 +14,17 @@ import { chinaParts } from '@/utils/trading';
 
 /* ---------------------------------- 枚举 ---------------------------------- */
 
-/** 选股范围（v0：自选股池，后续可扩展全市场扫描） */
-export type Universe = 'watchlist';
+/** 选股范围：自选股 / 最近一次全市场扫描命中 */
+export type Universe = 'watchlist' | 'scan';
 /** 可交易的 K 线周期（SignalEngine 支持的子集） */
 export type SignalPeriod = 'day' | '60m' | '30m' | '15m' | '5m' | '1m';
 /** 交易时段（早盘/盘中/尾盘/全天） */
 export type TradeSession = 'early' | 'intraday' | 'late' | 'any';
 
-export const UNIVERSE_LABEL: Record<Universe, string> = { watchlist: '自选股' };
+export const UNIVERSE_LABEL: Record<Universe, string> = {
+  watchlist: '自选股',
+  scan: '最近扫描命中',
+};
 export const PERIOD_LABELS: Record<SignalPeriod, string> = {
   day: '日K', '60m': '60分', '30m': '30分', '15m': '15分', '5m': '5分', '1m': '1分',
 };

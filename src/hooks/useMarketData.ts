@@ -11,6 +11,20 @@ import { logger } from '@/utils/logger';
 import { database } from '@/data/db';
 import type { Candle, KlineParams, KlinePeriod, Quote, Symbol } from '@/data/api';
 
+/**
+ * 数据拉取策略：
+ *  - 交易时段：短 TTL / 频繁刷新，实时打上游
+ *  - 非交易时段：长 TTL，优先读本地缓存（收盘后价格不再变）
+ */
+function quoteMaxAgeMs(): number {
+  // 盘中 30s 内可复用缓存；盘后 2h（收盘快照稳定）
+  return isTradingNow() ? 30_000 : 2 * 60 * 60 * 1000;
+}
+
+function shouldPollQuotes(): boolean {
+  return isTradingNow();
+}
+
 interface AsyncState<T> {
   data: T | null;
   loading: boolean;
@@ -31,9 +45,10 @@ export function useQuotes(
   // 注：时区错误会导致 isTradingNow 长期 false，从而永不自动刷新——已在 utils/trading 修复为按中国时区计算。
   useEffect(() => {
     if (!active) return;
+    // 非交易时段不轮询：收盘后价格固定，只在进入前台时刷一次即可
     const timer = setInterval(() => {
       if (AppState.currentState !== 'active') return;
-      if (isTradingNow()) setTick((t) => t + 1);
+      if (shouldPollQuotes()) setTick((t) => t + 1);
     }, 15_000);
     return () => clearInterval(timer);
   }, [active]);
@@ -57,13 +72,14 @@ export function useQuotes(
     }
     // 1) 先秒显本地缓存（避免每次进入都 loading 好几秒），不等网络。
     //    传入 TTL：超过最大年龄的缓存视为过期，返回 null → 不秒显旧数据，直接进入后台刷新。
-    QuotesCache.get(parsed, QUOTES_MAX_AGE_MS).then((cached) => {
+    QuotesCache.get(parsed, quoteMaxAgeMs()).then((cached) => {
       if (alive && cached) setState({ data: cached, loading: false, error: null });
     });
     // 2) 后台拉取最新行情，成功后写回缓存并刷新 UI（失败保留缓存）
     const fetchFn = kind === 'index' ? marketData.getIndexQuotes(parsed) : marketData.getQuotes(parsed);
     logger.debug('useQuotes', '拉取行情', {
       kind,
+      trading: isTradingNow(),
       symbols: parsed.map((s) => `${s.code}.${s.exchange}`),
     });
     fetchFn

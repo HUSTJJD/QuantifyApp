@@ -49,7 +49,7 @@ describe('SectorBoard', () => {
         </ThemeProvider>,
       );
     });
-    expect(texts(tree)).toContain('行业板块');
+    expect(texts(tree)).toContain('板块热力');
 
     // 容器常驻，因此总能拿到 onLayout 并测得宽度
     const measured = tree.root.findAllByType(View).find(v => typeof v.props.onLayout === 'function');

@@ -164,6 +164,8 @@ function MainTabs(): React.JSX.Element {
                 const [code, exchange] = key.split('.');
                 root?.navigate('Detail', { symbol: { code, exchange: exchange as Symbol['exchange'] } });
               }}
+              onOpenScanner={() => root?.navigate('Scanner')}
+              onOpenWorkflow={() => root?.navigate('Workflow')}
             />
           );
         }}

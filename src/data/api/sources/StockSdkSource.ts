@@ -357,6 +357,23 @@ export class StockSdkSource extends BaseMarketDataSource {
     });
   }
 
+  /**
+   * board.industry.list 内存缓存：listIndices / getIndexQuotes / getStockIndustryBoard
+   * 共用一次上游请求。盘中 30s、盘后 5min。
+   */
+  #boardListCache: { ts: number; rows: any[] } | null = null;
+
+  private async getBoardIndustryList(): Promise<any[]> {
+    const now = Date.now();
+    const ttl = 30_000; // 盘中短缓存即可；盘后首次拉到后也只重复一次
+    if (this.#boardListCache && now - this.#boardListCache.ts < ttl) {
+      return this.#boardListCache.rows;
+    }
+    const rows: any[] = await this.guard(this.sdk.board.industry.list(), '板块列表失败');
+    this.#boardListCache = { ts: now, rows: rows ?? [] };
+    return this.#boardListCache.rows;
+  }
+
   // ============================================================
   // 一、MarketDataSource 接口实现（统一契约，供 MarketDataClient 调度）
   // ============================================================
@@ -717,7 +734,7 @@ export class StockSdkSource extends BaseMarketDataSource {
   // ---------- 指数 / 板块 ----------
   /** 板块 / 行业列表（行业板块近似为「指数」候选） */
   async listIndices(_tag?: IndexTag): Promise<IndexInfo[]> {
-    const raw: any[] = await this.guard(this.sdk.board.industry.list(), '板块列表失败');
+    const raw: any[] = await this.getBoardIndustryList();
     return (raw ?? []).map((r: any) => {
       const code = String(r.code ?? '');
       // BKxxxx = 东财板块（EM），不要标成 SH/TI，否则 getIndexQuotes 会走错源
@@ -784,7 +801,7 @@ export class StockSdkSource extends BaseMarketDataSource {
     }
 
     const out: Quote[] = [];
-    const list: any[] = await this.guard(this.sdk.board.industry.list(), '板块行情失败');
+    const list: any[] = await this.getBoardIndustryList();
     const byCode = new Map<string, any>((list ?? []).map((b) => [String(b?.code ?? ''), b]));
     for (const s of boards) {
       const b = byCode.get(s.code);
@@ -2373,7 +2390,7 @@ export class StockSdkSource extends BaseMarketDataSource {
    * 只声明了本方法的源没有板块能力时抛 3004。
    */
   async getStockIndustryBoard(params?: IndustryBoardParams): Promise<IndustryBoardItem[]> {
-    const list: any[] = await this.guard(this.sdk.board.industry.list(), '行业板块列表失败');
+    const list: any[] = await this.getBoardIndustryList();
     const rows = list ?? [];
     const limit = params?.limit;
     const target = typeof limit === 'number' && limit > 0 ? rows.slice(0, limit) : rows;

@@ -23,6 +23,10 @@ export interface ColorScheme {
   warning: string;
   info: string;
   link: string;
+  /** 主色半透明底（芯片/选中态） */
+  primarySoft: string;
+  /** 分组卡/摘要条底色 */
+  surfaceMuted: string;
 }
 
 export const DarkColors: ColorScheme = {
@@ -41,6 +45,8 @@ export const DarkColors: ColorScheme = {
   warning: '#F5A623',
   info: '#66B0FB',
   link: '#66B0FB',
+  primarySoft: 'rgba(17,190,188,0.16)',
+  surfaceMuted: 'rgba(255,255,255,0.06)',
 };
 
 export const LightColors: ColorScheme = {
@@ -59,6 +65,8 @@ export const LightColors: ColorScheme = {
   warning: '#D97706',
   info: '#2563EB',
   link: '#00A19F',
+  primarySoft: 'rgba(0,161,159,0.12)',
+  surfaceMuted: '#F2F4F3',
 };
 
 export function getColors(mode: ThemeMode): ColorScheme {
@@ -69,6 +77,8 @@ export function getColors(mode: ThemeMode): ColorScheme {
 export const colors = DarkColors;
 
 export const spacing = {
+  /** 2px — 发丝间距、图标与标签 */
+  xxs: 2,
   xs: 4,
   sm: 8,
   md: 12,
@@ -102,6 +112,29 @@ export const radius = {
   lg: 16,
   pill: 999,
 };
+
+/** 动效时长（ms），对齐 Opptrix MOTION */
+export const duration = {
+  fast: 120,
+  base: 200,
+  slow: 320,
+} as const;
+
+/** 语义布局别名：组件消费这些，避免硬编码 */
+export const layout = {
+  gapInline: spacing.xs,
+  gapStack: spacing.sm,
+  gapCard: spacing.md,
+  paddingCard: spacing.lg,
+  radiusControl: radius.sm,
+  radiusCard: radius.md,
+  radiusPanel: radius.lg,
+  radiusPill: radius.pill,
+  /** 分组芯片高度（对齐 Opptrix watchlist chips） */
+  chipHeight: 28,
+  /** 行内触控最小高度 */
+  rowMinHeight: 48,
+} as const;
 
 /** 阴影/层级（按模式返回，暗色更弱、亮色更柔） */
 export const shadow = {
@@ -137,6 +170,6 @@ export const iconSize = {
   xl: 32,
 } as const;
 
-export const theme = { colors, spacing, fontSize, fontWeight, radius, shadow, zIndex, iconSize };
+export const theme = { colors, spacing, fontSize, fontWeight, radius, duration, layout, shadow, zIndex, iconSize };
 export type Theme = typeof theme;
 

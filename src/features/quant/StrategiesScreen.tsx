@@ -16,10 +16,14 @@ import { STRATEGIES } from '@/quant/strategies';
 import { recentStrategyEvents, strategyAccountRepo } from '@/quant/StrategyEngine';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
 import { toFullCode } from '@/domain';
-import { spacing, fontSize, radius, fontWeight } from '@/theme';
+import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag, Toggle, EmptyState, Icon } from '@/components';
 import { Icons } from '@/assets/icons';
+import { quantStore } from '@/data/db/QuantStore';
+import { getAll as getAllSignals } from '@/quant/SignalStore';
+import { buildCandidatePool, filterActionableSignals } from '@/quant/candidatePool';
+import { SimAccountRepo } from '@/simulation';
 
 export function StrategiesScreen({
   onEdit,
@@ -27,12 +31,16 @@ export function StrategiesScreen({
   onBacktest,
   onOpenSim,
   onOpenStock,
+  onOpenScanner,
+  onOpenWorkflow,
 }: {
   onEdit: (id: string) => void;
   onCreate: () => void;
   onBacktest: (id: string) => void;
   onOpenSim: (id: string) => void;
   onOpenStock?: (key: string) => void;
+  onOpenScanner?: () => void;
+  onOpenWorkflow?: () => void;
 }): React.JSX.Element {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -42,6 +50,7 @@ export function StrategiesScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [simMeta, setSimMeta] = useState<Record<string, { pos: number; trades: number }>>({});
+  const [pulse, setPulse] = useState({ hits: 0, pool: 0, signals: 0, followed: 0 });
 
   const load = useCallback(async () => {
     const ps = await getProfiles();
@@ -58,6 +67,28 @@ export function StrategiesScreen({
       }
     }
     setSimMeta(meta);
+    try {
+      const store = quantStore();
+      const snaps = await store.listScanSnapshots(1);
+      if (snaps.length > 0) {
+        const snap = snaps[0];
+        const hitRows = await store.listScanHits(snap.id!);
+        const pool = buildCandidatePool(hitRows);
+        const allSignals = await getAllSignals();
+        const actionable = filterActionableSignals(allSignals, pool);
+        const acc = await SimAccountRepo.get();
+        setPulse({
+          hits: snap.hitCount ?? hitRows.length,
+          pool: pool.length,
+          signals: actionable.length,
+          followed: acc.trades.length,
+        });
+      } else {
+        setPulse({ hits: 0, pool: 0, signals: 0, followed: 0 });
+      }
+    } catch {
+      setPulse({ hits: 0, pool: 0, signals: 0, followed: 0 });
+    }
     setLoading(false);
   }, []);
 
@@ -131,6 +162,50 @@ export function StrategiesScreen({
           <StatCol value={autoCount} label="自动交易" color={colors.up} />
         </View>
       </Card>
+
+      {/* 今日量化脉冲 + 快捷入口（quant-visibility） */}
+      <TouchableOpacity
+        style={styles.pulseCard}
+        onPress={onOpenWorkflow}
+        activeOpacity={0.8}
+        disabled={!onOpenWorkflow}
+      >
+        <View style={styles.pulseHead}>
+          <Text style={styles.pulseTitle}>今日脉冲</Text>
+          {onOpenWorkflow && (
+            <View style={styles.pulseGo}>
+              <Text style={styles.pulseGoText}>工作流</Text>
+              <Icon name={Icons.chevronRight} size="sm" color="primary" />
+            </View>
+          )}
+        </View>
+        <View style={styles.pulseRow}>
+          <StatCol value={pulse.hits} label="扫描命中" color={colors.info} />
+          <View style={styles.overviewDivider} />
+          <StatCol value={pulse.pool} label="候选池" color={colors.text} />
+          <View style={styles.overviewDivider} />
+          <StatCol value={pulse.signals} label="可操作信号" color={colors.primary} />
+          <View style={styles.overviewDivider} />
+          <StatCol value={pulse.followed} label="模拟成交" color={colors.up} />
+        </View>
+      </TouchableOpacity>
+
+      {(onOpenScanner || onOpenWorkflow) && (
+        <View style={styles.quickRow}>
+          {onOpenScanner && (
+            <TouchableOpacity style={styles.quickBtn} onPress={onOpenScanner} activeOpacity={0.8}>
+              <Icon name={Icons.search} size="md" color="primary" />
+              <Text style={styles.quickText}>全市场扫描</Text>
+            </TouchableOpacity>
+          )}
+          {onOpenWorkflow && (
+            <TouchableOpacity style={styles.quickBtn} onPress={onOpenWorkflow} activeOpacity={0.8}>
+              <Icon name={Icons.strategy} size="md" color="primary" />
+              <Text style={styles.quickText}>候选 → 跟单</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* 自动交易动态 */}
       {events.length > 0 && (
@@ -351,12 +426,43 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     container: { flex: 1, backgroundColor: colors.background },
     content: { padding: spacing.md },
 
-    overview: { marginBottom: spacing.md },
+    overview: { marginBottom: spacing.sm },
     overviewRow: { flexDirection: 'row', alignItems: 'center' },
     overviewDivider: { width: 1, height: 30, backgroundColor: colors.border },
     statCol: { flex: 1, alignItems: 'center' },
     statNum: { fontSize: fontSize.xl + 2, fontWeight: fontWeight.heavy as any },
     statLabel: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 2 },
+
+    pulseCard: {
+      backgroundColor: colors.surface,
+      borderRadius: layout.radiusCard,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    pulseHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    pulseTitle: { color: colors.text, fontSize: fontSize.sm, fontWeight: '700' },
+    pulseGo: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    pulseGoText: { color: colors.primary, fontSize: fontSize.xs, fontWeight: '600' },
+    pulseRow: { flexDirection: 'row', alignItems: 'center' },
+    quickRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+    quickBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+      height: 40,
+      borderRadius: layout.radiusControl,
+      backgroundColor: colors.primarySoft,
+    },
+    quickText: { color: colors.primary, fontSize: fontSize.sm, fontWeight: '600' },
 
     eventsCard: { overflow: 'hidden' },
     eventRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },

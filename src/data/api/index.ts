@@ -173,10 +173,12 @@ export type {
   ConceptBoardConstituentItem,
   ConceptBoardKlineParams,
 } from './types';
-// 副作用 import：激活 FuyaoApiSource / FundApiSource 的自注册（register 在模块加载时执行）。
-// 此前两源因 barrel 未 import 而休眠；补上后正式进入注册表（路由顺序仍由 sourceOrder 决定）。
+// 副作用 import：激活各数据源的自注册（register 在模块加载时执行）。
+// 必须覆盖 sourceOrder 里全部源，否则 factory 取不到实例 → canCall=false → attempted=0。
 import './sources/FuyaoApiSource';
 import './sources/FundApiSource';
+import './sources/HithsaApiSource';
+import './sources/StockSdkSource';
 
 // 封装层方法契约（强类型：方法名联合 + 参数/结果映射），消费方可用于动态分发
 export type {

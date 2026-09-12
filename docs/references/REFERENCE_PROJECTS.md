@@ -14,6 +14,7 @@
 | react-native-graph | `../react-native-graph` | RN 折线图 | Skia + Reanimated | 资产净值/权益曲线（已接入 LineGraphView） |
 | react-native-kline-chart | `../react-native-kline-chart` | RN K 线蜡烛图 | Skia + Reanimated | **已替换 native-kline-view**；仅蜡烛+MA |
 | OpenStock | `../OpenStock` | 开源股票平台 | Next.js + shadcn + Finnhub + TradingView | 全局搜索/快捷面板、告警、onboarding、邮件摘要 |
+| Opptrix | `../Opptrix` | 多市场 AI 投研工作台 | Vite React + 自研 Token/双主题 | Token 三层架构、iOS 移动设计语言、关注分组摘要、任务进度 |
 
 ---
 
@@ -175,6 +176,48 @@ Next.js 15 + shadcn/ui + Tailwind + Better Auth + MongoDB + Finnhub + TradingVie
 
 ---
 
+## 7. Opptrix
+
+**仓库**：https://github.com/Travisun/Opptrix  
+**本地**：`Desktop/QuantificationResearch/Opptrix`  
+**许可**：Apache-2.0（可借鉴设计；商用闭源仍建议只学模式不整段抄）
+
+### Tech Stack
+
+Vite + React（`client-ui`）+ Node 服务；自研三层 Design Token + Opptrix/iOS 双主题；Chat Agent + 工作流技能。
+
+### 外观 / 交互（可借鉴）
+
+| 模式 | 说明 | RN 映射 |
+|------|------|---------|
+| L1/L2 Token | spacing 4px 基、radius 4–16、MOTION 120–640ms + 语义别名 | 扩展 `src/theme` duration/语义 gap |
+| iOS grouped 语言 | 移动端默认 `canvas #F2F2F7` / surface 白 / accent 系统蓝 | 可选浅色风格；暗色继续 Ghostfolio 灰阶 |
+| 关注分组芯片 | h26 pill + active soft；选中后 2×2 摘要条 | 自选分组芯片 + 顶区摘要 |
+| 管理面板 | Drawer/内嵌面板而非 Modal | CreateGroup 可改 Sheet/Drawer |
+| 任务条 | scheduled-jobs「计划—进度—结果」 | 扫描/回测任务状态同构 |
+
+### 功能级
+
+- 「关注|组合|详情」共享分组筛选 → 自选 ⇄ 模拟盘同一 `selectedGroupId`
+- 技能 `/` 列表 → 信号解释/策略模板卡片化呈现
+
+### 不适用
+
+三栏桌面布局、Electron 窗口 chrome、Fluent CSS 变量（需 RN 重实现）。
+
+### 关键路径
+
+- `client-ui/src/theme/design-tokens.ts`（L1/L2）
+- `client-ui/src/theme/tokens.ts`、`mobileChrome.ts`、`appearanceStorage.ts`
+- 分支 `feat/watchlist-groups-panel-design`：`WatchlistGroupsPanel.tsx`、`docs/WATCHLIST-GROUPS-PANEL-DESIGN.md`
+
+### 已借鉴
+
+- `openspec/changes/mobile-surface-v1`：Token 补全、自选分组摘要条、列表密度
+- `openspec/changes/quant-visibility`：任务「计划—进度—结果」进工作流页
+
+---
+
 ## 使用约定
 
 1. **学习以设计/交互/数据流为主**；代码拷贝注意 license（OpenStock=AGPL，ghostfolio=AGPL，stock-sdk/dashboard=MIT 等）。
@@ -192,5 +235,6 @@ Desktop/QuantificationResearch/
 ├── kline-charts-react/
 ├── ghostfolio/
 ├── react-native-graph/
-└── OpenStock/
+├── OpenStock/
+└── Opptrix/
 ```

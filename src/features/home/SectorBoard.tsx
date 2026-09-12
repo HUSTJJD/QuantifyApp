@@ -1,29 +1,26 @@
 /**
- * SectorBoard —— 首页行业板块行情速览组件（方块热力图 / treemap 版）。
- *
- * 用「方块热力图（squarified treemap）」展示全部行业板块：
- *  - 每块面积正比于板块成交额（amount），自动调节大小——大板块占大块，小板块占小块
- *  - 块内背景色按涨跌幅着色（红涨绿跌，A股习惯；强度随幅度加深）
- *  - 不按固定网格排列（那只是列表），而是用 squarify 算法把矩形铺满、尽量接近正方形
- *  - 块内显示板块名 + 涨跌幅（太小则只留色块）
- *  - 点击板块查看成分股（预留接口）
+ * SectorBoard —— 首页板块热力图（行业/概念可切换，颜色指标可切换）。
+ * 参考 stock-dashboard Heatmap：维度 + 颜色指标 + 块大小=成交额。
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { marketData } from '@/data/api';
 import type { IndexInfo, Quote, IndexTag } from '@/data/api';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { toFullCode } from '@/domain';
-import { spacing, fontSize, radius } from '@/theme';
+import { spacing, fontSize, radius, layout } from '@/theme';
 import { squarify, type TreemapItem } from '@/utils/treemap';
+import { getAppPrefs, setAppPrefs, type AppPrefs } from '@/settings/appPrefs';
+import { Skeleton } from '@/components/ui/Skeleton';
+
+type HeatMetric = AppPrefs['heatmapMetric'];
 
 interface SectorBoardProps {
   tag?: IndexTag;
   onPress?: (index: IndexInfo) => void;
 }
 
-/** 涨跌幅达到该值即视为满色（最强强度），超过不再加深 */
 const FULL_COLOR_PCT = 5;
 
 interface Rgb { r: number; g: number; b: number }
@@ -47,7 +44,6 @@ function rgbStr(c: Rgb): string {
   return `rgb(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)})`;
 }
 
-/** 由涨跌幅计算色块配色：背景从 surface 渐变到 up/down（强度随幅度），文字按亮度取对比色 */
 function heatColor(pct: number, surface: string, up: string, down: string): { bg: string; fg: string } {
   const mag = Math.min(Math.abs(pct) / FULL_COLOR_PCT, 1);
   const base = hexToRgb(surface);
@@ -61,35 +57,54 @@ interface SectorItem {
   index: IndexInfo;
   pct: number;
   amount: number;
+  volume: number;
 }
 
 function mapHeight(w: number): number {
   return Math.max(280, Math.min(560, Math.round(w * 0.72)));
 }
 
-/**
- * 板块涨跌幅：优先用源直接给的 changePct。
- * 部分源（如板块 spot）只给涨跌幅、不给昨收（prevClose=0），
- * 此时若只用 (last-prevClose)/prevClose 会把所有板块算成 0%，整张图全灰。
- */
 function pctOf(q?: Quote): number {
   if (!q) return 0;
   if (q.changePct != null) return q.changePct;
   return q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : 0;
 }
 
-export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): React.JSX.Element {
+const DIM_OPTIONS: Array<{ key: 'industry' | 'cn_concept'; label: string }> = [
+  { key: 'industry', label: '行业' },
+  { key: 'cn_concept', label: '概念' },
+];
+const METRIC_OPTIONS: Array<{ key: HeatMetric; label: string }> = [
+  { key: 'pct', label: '涨跌' },
+  { key: 'amount', label: '成交额' },
+  { key: 'volume', label: '成交量' },
+];
+
+export function SectorBoard({ tag, onPress }: SectorBoardProps): React.JSX.Element {
   const { colors } = useAppTheme();
+  const [dim, setDim] = useState<'industry' | 'cn_concept'>('industry');
+  const [metric, setMetric] = useState<HeatMetric>('pct');
   const [indices, setIndices] = useState<IndexInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [size, setSize] = useState({ w: 0, h: 320 });
   const styles = makeStyles(colors);
 
+  const activeTag: IndexTag = tag ?? dim;
+
+  useEffect(() => {
+    getAppPrefs()
+      .then((p) => {
+        setDim(p.heatmapTag);
+        setMetric(p.heatmapMetric);
+      })
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     marketData
-      .listIndices(tag)
+      .listIndices(activeTag)
       .then((data) => {
         if (mounted) setIndices(data);
       })
@@ -102,13 +117,11 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
     return () => {
       mounted = false;
     };
-  }, [tag]);
+  }, [activeTag]);
 
-  // 把板块指数转成 Symbol 数组请求行情
   const symbols = indices.map((i) => i.symbol);
   const { data: quotes, loading: quotesLoading, reload } = useQuotes(symbols, 'index');
 
-  // 组装每个板块：涨跌幅 + 用于决定块大小的权重（成交额，缺失回退成交量/1）
   const items = useMemo<SectorItem[]>(() => {
     const quoteMap = new Map<string, Quote>();
     (quotes ?? []).forEach((q) => quoteMap.set(toFullCode(q.symbol), q));
@@ -118,10 +131,11 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
         const pct = pctOf(q);
         const hasQuote = !!q && q.last > 0;
         const amount = hasQuote ? (q.amount > 0 ? q.amount : q.volume > 0 ? q.volume : 1) : 1;
-        return { index: idx, pct, amount, hasQuote };
+        const volume = hasQuote ? (q.volume > 0 ? q.volume : 1) : 1;
+        return { index: idx, pct, amount, volume, hasQuote };
       })
       .filter((it) => it.hasQuote)
-      .map(({ index, pct, amount }) => ({ index, pct, amount }));
+      .map(({ index, pct, amount, volume }) => ({ index, pct, amount, volume }));
   }, [indices, quotes]);
 
   const itemByKey = useMemo(() => {
@@ -130,16 +144,25 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
     return m;
   }, [items]);
 
-  // 计算 treemap 布局：权重=成交额，铺满测得宽度
   const rects = useMemo(() => {
     if (size.w <= 0 || items.length === 0) return [];
-    const tmItems: TreemapItem[] = items.map((it) => ({ key: toFullCode(it.index.symbol), weight: it.amount }));
+    const tmItems: TreemapItem[] = items.map((it) => ({
+      key: toFullCode(it.index.symbol),
+      weight: it.amount,
+    }));
     return squarify(tmItems, size.w, size.h);
   }, [items, size.w, size.h]);
 
+  const persistDim = useCallback((d: 'industry' | 'cn_concept') => {
+    setDim(d);
+    setAppPrefs({ heatmapTag: d }).catch(() => undefined);
+  }, []);
+  const persistMetric = useCallback((m: HeatMetric) => {
+    setMetric(m);
+    setAppPrefs({ heatmapMetric: m }).catch(() => undefined);
+  }, []);
+
   return (
-    // 宽度在容器上测量：map 只在有数据时渲染，若把 onLayout 挂在 map 上会形成
-    // “没有宽度 → 不出 rects → 不渲染 map → 测不到宽度”的死锁，页面永远停在空状态。
     <View
       style={styles.container}
       onLayout={(e) => {
@@ -148,7 +171,7 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
       }}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>行业板块</Text>
+        <Text style={styles.title}>板块热力</Text>
         <View style={styles.legend}>
           <View style={[styles.legendSwatch, { backgroundColor: colors.down }]} />
           <Text style={styles.legendText}>跌</Text>
@@ -156,20 +179,41 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
           <Text style={styles.legendText}>平</Text>
           <View style={[styles.legendSwatch, { backgroundColor: colors.up }]} />
           <Text style={styles.legendText}>涨</Text>
-          <Text style={[styles.legendText, { marginLeft: 6 }]}>· 块大小=成交额</Text>
         </View>
       </View>
 
+      {/* 维度 + 颜色指标 */}
+      <View style={styles.chipRow}>
+        {DIM_OPTIONS.map((o) => (
+          <TouchableOpacity
+            key={o.key}
+            style={[styles.chip, dim === o.key && styles.chipActive]}
+            onPress={() => persistDim(o.key)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.chipText, dim === o.key && styles.chipTextActive]}>{o.label}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={styles.chipSpacer} />
+        {METRIC_OPTIONS.map((o) => (
+          <TouchableOpacity
+            key={o.key}
+            style={[styles.chip, metric === o.key && styles.chipActiveSoft]}
+            onPress={() => persistMetric(o.key)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.chipText, metric === o.key && styles.chipTextPrimary]}>{o.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {loading ? (
-        <View style={[styles.loading, { height: size.h }]}>
-          <Text style={styles.loadingText}>加载中…</Text>
-        </View>
+        <Skeleton shape="chart" height={size.h || 280} style={{ marginTop: spacing.sm }} />
       ) : indices.length === 0 ? (
         <View style={[styles.loading, { height: size.h }]}>
           <Text style={styles.loadingText}>暂无板块数据</Text>
         </View>
       ) : items.length === 0 ? (
-        // 列表已拿到但行情没取到：给可点的重试，而不是一句无法行动的“暂无数据”
         <TouchableOpacity
           style={[styles.loading, { height: size.h }]}
           onPress={reload}
@@ -187,6 +231,12 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
             if (!it) return null;
             const { bg, fg } = heatColor(it.pct, colors.surface, colors.up, colors.down);
             const showText = r.width >= 42 && r.height >= 30;
+            const metricLabel =
+              metric === 'pct'
+                ? `${it.pct >= 0 ? '+' : ''}${it.pct.toFixed(2)}%`
+                : metric === 'amount'
+                  ? `${(it.amount / 1e8).toFixed(1)}亿`
+                  : `${(it.volume / 1e4).toFixed(0)}万`;
             return (
               <TouchableOpacity
                 key={key}
@@ -199,10 +249,7 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
                     <Text style={[styles.tileName, { color: fg }]} numberOfLines={2}>
                       {it.index.name}
                     </Text>
-                    <Text style={[styles.tilePct, { color: fg }]}>
-                      {it.pct >= 0 ? '+' : ''}
-                      {it.pct.toFixed(2)}%
-                    </Text>
+                    <Text style={[styles.tilePct, { color: fg }]}>{metricLabel}</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -216,16 +263,14 @@ export function SectorBoard({ tag = 'industry', onPress }: SectorBoardProps): Re
 
 function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
   return StyleSheet.create({
-    container: {
-      marginBottom: spacing.md,
-    },
+    container: { marginBottom: spacing.md },
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       flexWrap: 'wrap',
-      paddingHorizontal: spacing.md,
-      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.xs,
+      marginBottom: spacing.xs,
       gap: spacing.xs,
     },
     title: {
@@ -250,6 +295,26 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       fontSize: fontSize.xs,
       marginRight: 3,
     },
+    chipRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginBottom: spacing.sm,
+      flexWrap: 'wrap',
+    },
+    chipSpacer: { width: spacing.sm },
+    chip: {
+      height: layout.chipHeight,
+      paddingHorizontal: spacing.md,
+      borderRadius: layout.radiusPill,
+      backgroundColor: colors.surfaceAlt,
+      justifyContent: 'center',
+    },
+    chipActive: { backgroundColor: colors.primary },
+    chipActiveSoft: { backgroundColor: colors.primarySoft },
+    chipText: { color: colors.textSecondary, fontSize: fontSize.xs, fontWeight: '600' },
+    chipTextActive: { color: '#fff' },
+    chipTextPrimary: { color: colors.primary },
     map: {
       width: '100%',
       position: 'relative',

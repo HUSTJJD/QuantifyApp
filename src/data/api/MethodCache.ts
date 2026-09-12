@@ -21,6 +21,7 @@
 import { quantStore } from '@/data/db/QuantStore';
 import { domainCache } from '@/data/db/DomainCache';
 import { stableStringify } from './coalesce';
+import { isTradingNow } from '@/utils/trading';
 import type { DataSourceMethod, MethodArgs, MethodResult } from './methods';
 import type { Quote, Symbol } from '@/data/api';
 import { toFullCode } from '@/domain/symbol';
@@ -145,6 +146,40 @@ export const METHOD_CACHE_POLICIES: Partial<Record<DataSourceMethod, MethodCache
 
 export function methodCacheKey(method: DataSourceMethod, args: unknown[]): string {
   return `${method}.${stableStringify(args)}`;
+}
+
+/**
+ * 解析实际 TTL：盘中/盘后对实时性类方法区分策略。
+ * 交易时段保持短 TTL；非交易时段拉长，减少无谓请求（价格已定格）。
+ */
+function resolveTtlMs(method: DataSourceMethod, baseTtl: number): number {
+  if (isTradingNow()) return baseTtl;
+  switch (method) {
+    case 'getQuotes':
+    case 'getIndexQuotes':
+    case 'getFundMarketSnapshot':
+    case 'getOptionQuotes':
+    case 'getOptionCffexQuotes':
+    case 'getFuturesGlobalSpot':
+    case 'getLargeOrderRatios':
+    case 'getOrderBook':
+    case 'getIntraday':
+      // 收盘后快照稳定：10 分钟足够覆盖多次进页
+      return Math.max(baseTtl, 10 * 60_000);
+    case 'getStockFundsFlowing':
+    case 'getStockIndustryFundsFlowing':
+    case 'getLimitUpPool':
+    case 'getLimitDownPool':
+    case 'getLimitBreakPool':
+    case 'getMainForce':
+    case 'getStockIndustryBoard':
+    case 'getConceptBoards':
+    case 'getStockHotIndustry':
+      // 盘后榜单/资金流不再变：30 分钟
+      return Math.max(baseTtl, 30 * 60_000);
+    default:
+      return baseTtl;
+  }
 }
 
 function isEmptyResult(v: unknown): boolean {
@@ -2100,11 +2135,12 @@ export async function readThroughCache<M extends DataSourceMethod>(
     return fetch();
   }
   const now = Date.now();
+  const ttlMs = resolveTtlMs(method, policy.ttlMs);
 
   // 1) 领域表读
   if (policy.store === 'domain') {
     try {
-      const hit = await readDomain(method, args as unknown[], now, policy.ttlMs);
+      const hit = await readDomain(method, args as unknown[], now, ttlMs);
       if (hit !== null && hit !== undefined) {
         if (!isEmptyResult(hit) || policy.cacheEmpty) {
           return hit as MethodResult<M>;
@@ -2153,7 +2189,7 @@ export async function readThroughCache<M extends DataSourceMethod>(
     // 领域方法：非空走领域表；空结果且 cacheEmpty 写 method_cache 哨兵
     const useDomain = policy.store === 'domain' && !isEmptyResult(result);
     if (useDomain) {
-      writeDomain(method, args as unknown[], result, policy.ttlMs, now).catch(() => {});
+      writeDomain(method, args as unknown[], result, ttlMs, now).catch(() => {});
     } else {
       quantStore()
         .putMethodCache({
@@ -2162,7 +2198,7 @@ export async function readThroughCache<M extends DataSourceMethod>(
           argsHash: stableStringify(args as unknown[]).slice(0, 256),
           payload: JSON.stringify(result ?? null),
           updatedAt: now,
-          expiresAt: now + policy.ttlMs,
+          expiresAt: now + ttlMs,
         })
         .catch(() => {});
     }

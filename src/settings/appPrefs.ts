@@ -29,6 +29,22 @@ export interface AppPrefs {
   showMarketPulse: boolean;
   /** 首页是否展示今日异动 */
   showTodaySurge: boolean;
+  /** 首页热力图维度：行业 / 概念 */
+  heatmapTag: 'industry' | 'cn_concept';
+  /** 首页热力图颜色指标 */
+  heatmapMetric: 'pct' | 'amount' | 'volume';
+  /** 是否已完成首启引导 */
+  hasOnboarded: boolean;
+  /** 主战场（引导页采集） */
+  marketPrefs: Array<'A' | 'HK' | 'US'>;
+  /** 风险风格：稳健 / 平衡 / 进取 */
+  riskStyle: 'conservative' | 'balanced' | 'aggressive';
+  /** 盘后摘要通知开关 */
+  notifyDigest: boolean;
+  /** 盘后摘要时间 HH:mm（本地） */
+  notifyDigestTime: string;
+  /** 价格/异动本地通知 */
+  notifyPriceAlert: boolean;
 }
 
 const KEY = 'app.prefs.v1';
@@ -47,6 +63,14 @@ export const DEFAULT_PREFS: AppPrefs = {
   showFundFlowRanks: true,
   showMarketPulse: true,
   showTodaySurge: true,
+  heatmapTag: 'industry',
+  heatmapMetric: 'pct',
+  hasOnboarded: false,
+  marketPrefs: ['A'],
+  riskStyle: 'balanced',
+  notifyDigest: false,
+  notifyDigestTime: '15:10',
+  notifyPriceAlert: true,
 };
 
 function clamp(n: number, min: number, max: number, fallback: number): number {
@@ -73,6 +97,23 @@ export async function getAppPrefs(): Promise<AppPrefs> {
     showFundFlowRanks: saved.showFundFlowRanks ?? true,
     showMarketPulse: saved.showMarketPulse ?? true,
     showTodaySurge: saved.showTodaySurge ?? true,
+    heatmapTag: saved.heatmapTag === 'cn_concept' ? 'cn_concept' : 'industry',
+    heatmapMetric:
+      saved.heatmapMetric === 'amount' || saved.heatmapMetric === 'volume'
+        ? saved.heatmapMetric
+        : 'pct',
+    hasOnboarded: Boolean(saved.hasOnboarded),
+    marketPrefs:
+      Array.isArray(saved.marketPrefs) && saved.marketPrefs.length > 0
+        ? saved.marketPrefs.filter((m) => m === 'A' || m === 'HK' || m === 'US')
+        : ['A'],
+    riskStyle:
+      saved.riskStyle === 'conservative' || saved.riskStyle === 'aggressive'
+        ? saved.riskStyle
+        : 'balanced',
+    notifyDigest: Boolean(saved.notifyDigest),
+    notifyDigestTime: typeof saved.notifyDigestTime === 'string' ? saved.notifyDigestTime : '15:10',
+    notifyPriceAlert: saved.notifyPriceAlert !== false,
   };
 }
 

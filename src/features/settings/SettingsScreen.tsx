@@ -28,6 +28,8 @@ import {
 } from '@/settings/appPrefs';
 import { quoteFeed } from '@/data/QuoteFeed';
 import { quantStore } from '@/data/db/QuantStore';
+import { fireDigestNow } from '@/features/notify/localDigest';
+import { fireDigestAlert } from '@/features/notify/DigestBridge';
 
 const INTERVAL_OPTIONS = [3, 5, 10, 15, 30];
 const RATIO_OPTIONS = [
@@ -164,6 +166,54 @@ export function SettingsScreen({
         <Text style={styles.sourceLabel}>深色模式</Text>
         <Toggle on={mode === 'dark'} onChange={() => toggle()} />
       </View>
+
+      <Text style={styles.sectionTitle}>通知</Text>
+      <View style={styles.themeRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sourceLabel}>盘后摘要</Text>
+          <Text style={styles.sectionHint}>交易日到点后汇总扫描/信号</Text>
+        </View>
+        <Toggle on={prefs.notifyDigest} onChange={() => savePrefs({ notifyDigest: !prefs.notifyDigest })} />
+      </View>
+      {prefs.notifyDigest && (
+        <View style={styles.chipRow}>
+          {['15:05', '15:10', '15:30', '16:00'].map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.chip, prefs.notifyDigestTime === t && styles.chipActive]}
+              onPress={() => savePrefs({ notifyDigestTime: t })}
+            >
+              <Text style={[styles.chipText, prefs.notifyDigestTime === t && styles.chipTextActive]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={[styles.chip, { borderColor: colors.primary, borderWidth: 1 }]}
+            onPress={async () => {
+              const c = await fireDigestNow();
+              fireDigestAlert(c.title, c.body);
+            }}
+          >
+            <Text style={[styles.chipText, { color: colors.primary }]}>试发</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <View style={styles.themeRow}>
+        <Text style={styles.sourceLabel}>价格/异动提醒</Text>
+        <Toggle
+          on={prefs.notifyPriceAlert}
+          onChange={() => savePrefs({ notifyPriceAlert: !prefs.notifyPriceAlert })}
+        />
+      </View>
+      <TouchableOpacity
+        style={[styles.themeRow, { paddingVertical: spacing.sm }]}
+        onPress={() => {
+          savePrefs({ hasOnboarded: false }).then(() => {
+            Alert.alert('已重置引导', '重启应用后将重新进入首启引导');
+          });
+        }}
+      >
+        <Text style={styles.sourceLabel}>重新首启引导</Text>
+      </TouchableOpacity>
 
       <Text style={styles.sectionTitle}>行情刷新</Text>
       <Text style={styles.sectionHint}>交易时段内轮询间隔；间隔越短越费电与接口配额。</Text>
