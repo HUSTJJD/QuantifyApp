@@ -1,7 +1,7 @@
 /**
  * chart 层测试：市场时段 / 指标元信息 / Provider 约定。
  */
-import { isMarketTradingTime } from '@/chart/marketSessions';
+import { isMarketTradingTime } from '@/components/chart/marketSessions';
 import {
   getIndicatorGroup,
   toNativeMainCode,
@@ -9,8 +9,8 @@ import {
   getMAPeriods,
   MAIN_INDICATOR_METAS,
   SUB_INDICATOR_METAS,
-} from '@/chart/indicatorMeta';
-import { toKlinePeriod, isTimelinePeriod, chartMarketOf } from '@/chart';
+} from '@/components/chart/indicatorMeta';
+import { toKlinePeriod, isTimelinePeriod, chartMarketOf } from '@/components/chart';
 import type { Symbol } from '@/data/api';
 
 describe('marketSessions', () => {

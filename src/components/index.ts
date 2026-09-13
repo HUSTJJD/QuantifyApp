@@ -5,6 +5,9 @@ export { LineGraphView } from './LineGraphView';
 export type { KLineChartProps, MainIndicator, SubIndicator } from './KLineChart';
 export type { LineGraphViewProps } from './LineGraphView';
 
+// 图表纯逻辑（指标/格式化/引擎探测等），详见 ./chart
+export * from './chart';
+
 // 统一 UI 组件库
 export { PageHeader } from './ui/PageHeader';
 export { Card } from './ui/Card';

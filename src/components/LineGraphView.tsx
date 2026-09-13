@@ -9,8 +9,8 @@ import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Sparkline } from './Sparkline';
 import { DualLineChart } from './DualLineChart';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { getChartTheme } from '@/chart/theme';
-import { isGraphAvailable, probeChartEngines } from '@/chart/availability';
+import { getChartTheme } from '@/components/chart/theme';
+import { isGraphAvailable, probeChartEngines } from '@/components/chart/availability';
 import { spacing, fontSize } from '@/theme';
 
 export interface LineGraphViewProps {

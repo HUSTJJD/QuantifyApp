@@ -1,6 +1,6 @@
 /**
- * 统一图表层入口（设计/数据/主题 + 纯逻辑 + 引擎探测）。
- * 组件仍从 `@/components` 取：KLineChart / LineGraphView。
+ * 图表子模块（components/chart）：设计/数据/主题 + 纯逻辑 + 引擎探测。
+ * UI 组件：`@/components` 的 KLineChart / LineGraphView。
  */
 export * from './types';
 export * from './indicatorMeta';

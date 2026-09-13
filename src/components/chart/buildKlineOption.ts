@@ -4,7 +4,7 @@
  */
 import type { Candle } from '@/data/api';
 import type { ChartTheme } from './theme';
-import { calcMA, calcBOLL, calcMACD, calcKDJ, calcRSI, calcWR } from '@/components/kline/indicators';
+import { calcMA, calcBOLL, calcMACD, calcKDJ, calcRSI, calcWR } from '../kline/indicators';
 
 export type SubPaneId = 'volume' | 'macd' | 'kdj' | 'rsi' | 'wr' | 'none';
 

@@ -4,10 +4,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Candle, Symbol } from '@/data/api';
-import type { ChartMarket, ChartPeriod, ChartAdjust, KlineDataProvider, AutoRefreshConfig } from '@/chart/types';
-import { isTimelinePeriod } from '@/chart/types';
-import { createDefaultKlineProvider, chartMarketOf, loadEarlierKline } from '@/chart/dataProvider';
-import { isMarketTradingTime } from '@/chart/marketSessions';
+import type { ChartMarket, ChartPeriod, ChartAdjust, KlineDataProvider, AutoRefreshConfig } from '@/components/chart/types';
+import { isTimelinePeriod } from '@/components/chart/types';
+import { createDefaultKlineProvider, chartMarketOf, loadEarlierKline } from '@/components/chart/dataProvider';
+import { isMarketTradingTime } from '@/components/chart/marketSessions';
 
 const DEFAULT_DEBOUNCE_MS = 120;
 const DEFAULT_TTL_MS = 30_000;

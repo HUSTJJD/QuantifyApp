@@ -19,14 +19,14 @@ import React, {
 import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import type { Candle, KlinePeriod } from '@/data/api';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { getChartTheme } from '@/chart/theme';
-import { buildKlineOption, type SubPaneId } from '@/chart/buildKlineOption';
-import { getMAPeriods } from '@/chart/indicatorMeta';
+import { getChartTheme } from '@/components/chart/theme';
+import { buildKlineOption, type SubPaneId } from '@/components/chart/buildKlineOption';
+import { getMAPeriods } from '@/components/chart/indicatorMeta';
 import {
   isEchartsSkiaAvailable,
   isKlineChartAvailable,
   probeChartEngines,
-} from '@/chart/availability';
+} from '@/components/chart/availability';
 import { spacing, fontSize, radius } from '@/theme';
 import { logger } from '@/utils/logger';
 

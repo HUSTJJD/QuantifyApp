@@ -13,7 +13,7 @@ import {
   calcSAR,
   calcKC,
   toOHLCV,
-} from '@/chart/indicators';
+} from '@/components/chart/indicators';
 import {
   formatPrice,
   formatPercent,
@@ -21,7 +21,7 @@ import {
   formatChange,
   formatDate,
   smartNumber,
-} from '@/chart/formatters';
+} from '@/components/chart/formatters';
 import {
   isSkiaAvailable,
   isGraphAvailable,
@@ -29,7 +29,7 @@ import {
   isEchartsSkiaAvailable,
   isWorkletsHealthy,
   probeChartEngines,
-} from '@/chart/availability';
+} from '@/components/chart/availability';
 
 const closes = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 const ohlcv = toOHLCV(
