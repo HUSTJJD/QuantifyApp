@@ -10,7 +10,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, fontWeight, radius } from '@/theme';
 import { Card, Section } from '@/components';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { BRAND } from '@/theme/brand';
 
 export function MineScreen({

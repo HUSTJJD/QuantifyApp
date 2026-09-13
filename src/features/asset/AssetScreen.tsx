@@ -18,7 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { LineGraphView, Card, Section, Value, Icon, Skeleton, EmptyState } from '@/components';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { useQuotes } from '@/hooks/useMarketData';
 import { displaySymbol } from '@/domain';
 import { useAppTheme } from '@/theme/ThemeProvider';

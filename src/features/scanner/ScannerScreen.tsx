@@ -16,7 +16,7 @@ import { scanMarket, ScanHit, ScanProgress } from '@/quant/scanner';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import type { Symbol } from '@/data/api';
 import { addToWatchlist } from '@/data/repositories/WatchlistRepository';
 import { hitKey, addHitsToWatchlist, saveScanSnapshot } from './scanActions';

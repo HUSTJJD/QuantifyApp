@@ -10,7 +10,7 @@ import { spacing, fontSize, fontWeight, layout, radius } from '@/theme';
 import { setAppPrefs, type AppPrefs } from '@/settings/appPrefs';
 import { BRAND } from '@/theme/brand';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 
 type Market = 'A' | 'HK' | 'US';
 type Risk = AppPrefs['riskStyle'];

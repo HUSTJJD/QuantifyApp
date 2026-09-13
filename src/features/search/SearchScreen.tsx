@@ -13,7 +13,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Keyboard } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SearchBar } from '@/components/ui/SearchBar';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { marketData } from '@/data/api';
 import type { Instrument, Symbol } from '@/data/api';
 import { storage, StorageKeys } from '@/data/db/storage';

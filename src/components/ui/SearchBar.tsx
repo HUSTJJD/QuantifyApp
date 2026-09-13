@@ -10,7 +10,7 @@
 import React from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Icon } from './Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 

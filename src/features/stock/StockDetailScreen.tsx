@@ -32,7 +32,7 @@ import { KLineChart, Card, Section } from '@/components';
 import { DecisionCard } from './DecisionCard';
 import { computeSignal } from '@/quant/signals';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, radius, fontWeight } from '@/theme';
 import { buildIndicatorOverlay, isIndicatorValid } from '@/features/stock/indicatorsOverlay';

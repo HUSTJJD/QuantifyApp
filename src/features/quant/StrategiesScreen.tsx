@@ -19,7 +19,7 @@ import { toFullCode } from '@/domain';
 import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag, Toggle, EmptyState, Icon } from '@/components';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { quantStore } from '@/data/db/QuantStore';
 import { getAll as getAllSignals } from '@/quant/SignalStore';
 import { buildCandidatePool, filterActionableSignals } from '@/quant/candidatePool';

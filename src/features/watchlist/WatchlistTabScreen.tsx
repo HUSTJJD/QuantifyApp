@@ -43,7 +43,7 @@ import { WatchRadarLine } from './WatchRadarLine';
 import { peekAddedPrice, setAddedPrice } from './addedPriceCache';
 import { getIndustryOf } from '@/quant/industryMap';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 
 const ALL_ID = '__all__';
 

@@ -41,7 +41,7 @@ import { AlertRulesScreen } from '@/features/watchlist/AlertRulesScreen';
 import { AutomationScreen } from '@/features/settings/AutomationScreen';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 /** 根 Stack 路由参数表 */

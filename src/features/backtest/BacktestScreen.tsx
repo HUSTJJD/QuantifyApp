@@ -22,7 +22,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, fontWeight, layout } from '@/theme';
 import { Card, Section, EmptyState, Tag } from '@/components';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 
 export function BacktestScreen({
   onBack,

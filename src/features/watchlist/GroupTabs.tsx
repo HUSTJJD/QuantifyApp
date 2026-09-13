@@ -10,7 +10,7 @@
 import React from 'react';
 import { Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import type { WatchlistGroup } from '@/data/repositories/WatchlistRepository';

@@ -10,7 +10,7 @@ import { spacing, fontSize, fontWeight, layout } from '@/theme';
 import { Card } from '@/components/ui/Card';
 import { Toggle } from '@/components/ui/Toggle';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import {
   listJobs,
   listRunsForJob,

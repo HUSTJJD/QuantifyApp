@@ -25,7 +25,7 @@ import {
 } from '@/features/watchlist/alertHistory';
 import { Card, Section, Tag } from '@/components';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 
 export function WatchlistScreen({
   onOpen,

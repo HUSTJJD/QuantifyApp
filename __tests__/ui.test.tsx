@@ -8,7 +8,7 @@ import { Tag } from '@/components/ui/Tag';
 import { PriceText, ChangePct } from '@/components/ui/PriceText';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 /** 冒烟测试：在 ThemeProvider 下各 UI 组件能正常渲染、不抛错。 */

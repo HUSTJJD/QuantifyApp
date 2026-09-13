@@ -21,7 +21,7 @@ import { FundFlowRanksCard } from './FundFlowRanksCard';
 import { MarketPulseBar } from './MarketPulseBar';
 import { TodaySurgeList } from './TodaySurgeList';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { getAppPrefs, primeAppPrefs, DEFAULT_PREFS, type AppPrefs } from '@/settings/appPrefs';
 
 /** 默认指数标的（A股 + 港股通代表） */

@@ -8,7 +8,7 @@ module.exports = function (api) {
         {
           root: ['./src'],
           alias: {
-            // 业务代码里 @/assets/icons = src/assets/icons；
+            // 业务代码里 @/theme/icons = src/assets/icons；
             // 根目录 assets/ 仅存放 Expo 图标/启动图，用相对路径引用即可。
             '@': './src',
           },

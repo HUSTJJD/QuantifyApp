@@ -14,7 +14,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { marketData } from '@/data/api';
 import type { Symbol, DragonTigerStock } from '@/data/api';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { toFullCode } from '@/domain';

@@ -25,7 +25,7 @@ import type { Symbol } from '@/data/api';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { Card } from '@/components';
 
 interface FollowOutcome {

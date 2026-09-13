@@ -16,7 +16,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, fontWeight, radius, layout } from '@/theme';
 import { Card } from '@/components/ui/Card';
 import { Icon } from '@/components/ui/Icon';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { SkeletonRows } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ChangePct } from '@/components/ui/PriceText';

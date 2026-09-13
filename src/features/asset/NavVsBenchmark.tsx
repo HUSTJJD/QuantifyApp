@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { LineGraphView } from '@/components/LineGraphView';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Icons } from '@/assets/icons';
+import { Icons } from '@/theme/icons';
 import { alignByDate, computeBenchmarkMetrics } from '@/quant/benchmark';
 import type { Candle, KlineParams } from '@/data/api';
 

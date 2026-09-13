@@ -6,7 +6,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { Icon } from './Icon';
-import type { IconName } from '@/assets/icons';
+import type { IconName } from '@/theme/icons';
 
 export function EmptyState({
   text,
