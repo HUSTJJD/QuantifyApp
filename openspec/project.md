@@ -63,7 +63,8 @@
 7. ~~策略绩效曲线进专属模拟盘~~ 已交付：strategyNavStore 按日快照 + NavVsBenchmark
 8. ~~回测报告导出~~ 已交付：backtestReport 纯文本 + 报告页「导出」长按复制
 9. ~~相对买入持有对比 / 全量成交展开~~ 已交付（backtest-vs-buyhold）
-10. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题（与 #5 合并跟踪）
+10. ~~池内收益对比条~~ 已交付（backtest-pool-compare）
+11. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题（与 #5 合并跟踪）
 
 **备注（2026-09-13）**：回测链路（引擎可信执行、回测中心、详报 vs 基准/买入持有、样本外、参数扫描、报告导出）已齐。下一高 ROI：真机 QA 问题清单 → 按问题再开 change。
 
