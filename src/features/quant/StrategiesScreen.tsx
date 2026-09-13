@@ -62,10 +62,13 @@ export function StrategiesScreen({
   const [simMeta, setSimMeta] = useState<Record<string, { pos: number; trades: number }>>({});
   const [pulse, setPulse] = useState({ hits: 0, pool: 0, signals: 0, followed: 0 });
   const [regime, setRegime] = useState<RegimeResult | null>(null);
+  const [events, setEvents] = useState(() => recentStrategyEvents());
 
   const load = useCallback(async () => {
     const ps = await getProfiles();
     setProfiles(ps);
+    // 自动交易动态：每次 focus/刷新重读，避免 useMemo([]) 卡在首屏快照
+    setEvents(recentStrategyEvents());
     void loadRegime()
       .then(setRegime)
       .catch(() => setRegime(null));
@@ -154,7 +157,6 @@ export function StrategiesScreen({
   );
   const enabledCount = profiles.filter((p) => p.enabled).length;
   const autoCount = profiles.filter((p) => p.enabled && p.autoTrade).length;
-  const events = useMemo(() => recentStrategyEvents().slice(0, 6), []);
 
   const styles = makeStyles(colors);
 
@@ -267,9 +269,9 @@ export function StrategiesScreen({
       {/* 自动交易动态 */}
       {events.length > 0 && (
         <>
-          <Section title="自动交易动态" action={<Tag text={String(recentStrategyEvents().length)} variant="neutral" color={colors.info} />} />
+          <Section title="自动交易动态" action={<Tag text={String(events.length)} variant="neutral" color={colors.info} />} />
           <Card padded={false} style={styles.eventsCard}>
-            {events.map((e, i) => (
+            {events.slice(0, 6).map((e, i) => (
               <View key={`${e.ts}-${i}`} style={[styles.eventRow, i > 0 && styles.hairlineTop]}>
                 <View style={[styles.eventBadge, { backgroundColor: e.side === 'buy' ? colors.up : colors.down }]}>
                   <Text style={styles.eventBadgeText}>{e.side === 'buy' ? '买' : '卖'}</Text>
