@@ -26,7 +26,7 @@ import {
   isEchartsSkiaAvailable,
   isKlineChartAvailable,
   probeChartEngines,
-} from '@/charts/availability';
+} from '@/chart/availability';
 import { spacing, fontSize, radius } from '@/theme';
 import { logger } from '@/utils/logger';
 

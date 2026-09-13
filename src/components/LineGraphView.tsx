@@ -10,7 +10,7 @@ import { Sparkline } from './Sparkline';
 import { DualLineChart } from './DualLineChart';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { getChartTheme } from '@/chart/theme';
-import { isGraphAvailable, probeChartEngines } from '@/charts/availability';
+import { isGraphAvailable, probeChartEngines } from '@/chart/availability';
 import { spacing, fontSize } from '@/theme';
 
 export interface LineGraphViewProps {
