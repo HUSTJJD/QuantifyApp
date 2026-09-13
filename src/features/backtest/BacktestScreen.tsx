@@ -82,7 +82,7 @@ export function BacktestScreen({
       <Card style={styles.intro}>
         <Text style={styles.introTitle}>可信回测链路</Text>
         <Text style={styles.introDesc}>
-          自选池（最多 12 只）· 不复权 + 除权事件回放 · 佣金/印花税/过户费 · 可选滑点与次日开盘成交 ·
+          按策略档案选股范围取池（自选 / 最近扫描命中，最多 12 只）· 不复权 + 除权事件回放 · 佣金/印花税/过户费 · 可选滑点与次日开盘成交 ·
           样本外 walk-forward · 参数网格 TopN
         </Text>
         <Text style={styles.introMeta}>

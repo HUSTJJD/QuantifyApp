@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getProfiles, upsertProfile, deleteProfile } from '@/quant/profileStore';
 import type { StrategyProfile } from '@/quant/profile';
-import { SESSION_LABELS, PERIOD_LABELS, templateById } from '@/quant/profile';
+import { SESSION_LABELS, PERIOD_LABELS, UNIVERSE_LABEL, templateById } from '@/quant/profile';
 import { STRATEGIES } from '@/quant/strategies';
 import { recentStrategyEvents, strategyAccountRepo } from '@/quant/StrategyEngine';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
@@ -411,7 +411,7 @@ function StrategyCard({
 
       <View style={styles.cardMetaWrap}>
         <Text style={styles.cardMeta} numberOfLines={2}>
-          {t?.label ?? profile.note} · {PERIOD_LABELS[profile.trade.period]} · {SESSION_LABELS[profile.trade.session]} · 仓位
+          {t?.label ?? profile.note} · {UNIVERSE_LABEL[profile.selection.universe] ?? '自选股'} · {PERIOD_LABELS[profile.trade.period]} · {SESSION_LABELS[profile.trade.session]} · 仓位
           {Math.round(profile.trade.positionRatio * 100)}% · 最多 {profile.trade.maxPositions} 只
         </Text>
         {exitChips.length > 0 && (

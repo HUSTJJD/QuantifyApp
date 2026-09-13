@@ -1,7 +1,7 @@
 /**
  * 策略回测报告页（可信化闭环）：
- *  - 自选股池批量回测汇总
- *  - 单标的详报：权益曲线 vs 沪深300、绩效、成交明细
+ *  - 按档案选股范围批量回测汇总（watchlist=自选 / scan=最近扫描命中）
+ *  - 单标的详报：权益曲线 vs 沪深300 / 买入持有、绩效、成交明细
  *  - 样本内 / 样本外（walk-forward）对比
  *  - 因子参数网格扫描 TopN，可一键应用最优
  */
@@ -21,7 +21,8 @@ import { gridSearch, type OptimizeEntry } from '@/quant/optimize';
 import { buildScanGrid, strategyWithParams, formatParamCombo } from '@/quant/paramScan';
 import { formatBacktestReport } from '@/quant/backtestReport';
 import { runBuyHold, excessVsBuyHold, type BuyHoldMetrics } from '@/quant/buyHold';
-import { getGroups } from '@/data/repositories/WatchlistRepository';
+import { resolvePool } from '@/quant/StrategyEngine';
+import { UNIVERSE_LABEL } from '@/quant/profile';
 import type { Symbol, Candle } from '@/data/api';
 import { displaySymbol } from '@/domain';
 import { spacing, fontSize, fontWeight } from '@/theme';
@@ -128,20 +129,15 @@ export function StrategyBacktestScreen({
         return;
       }
       setProfile(p);
-      const groups = await getGroups();
-      const seen = new Set<string>();
-      const pool: Symbol[] = [];
-      for (const g of groups) {
-        for (const s of g.symbols ?? []) {
-          const key = `${s.code}_${s.exchange}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          pool.push(s);
-        }
-      }
+      // 与自动交易同一选股池解析：watchlist=自选 / scan=最近扫描命中（过期回落自选）
+      const pool = await resolvePool(p);
       const capped = pool.slice(0, POOL_CAP);
       if (capped.length === 0) {
-        setNote('选股池为空：先在自选股中添加股票');
+        setNote(
+          p.selection.universe === 'scan'
+            ? '扫描池为空：先跑一次全市场扫描，或切回自选股池'
+            : '选股池为空：先在自选股中添加股票',
+        );
         setRunning(false);
         return;
       }
@@ -181,8 +177,9 @@ export function StrategyBacktestScreen({
         }
         setRows([...out]);
       }
+      const poolLabel = UNIVERSE_LABEL[p.selection.universe] ?? '自选股';
       setNote(
-        `样本：自选前 ${capped.length} 只 · 近 ${BAR_COUNT} 根 · 不复权+除权 · 次日开盘成交 · 滑点 ${slippageBp}bp${capped.length < pool.length ? `（另有 ${pool.length - capped.length} 只未参与）` : ''}`,
+        `样本：${poolLabel}前 ${capped.length} 只 · 近 ${BAR_COUNT} 根 · 不复权+除权 · 次日开盘成交 · 滑点 ${slippageBp}bp${capped.length < pool.length ? `（另有 ${pool.length - capped.length} 只未参与）` : ''}`,
       );
       setRunning(false);
     })().catch(() => setRunning(false));
