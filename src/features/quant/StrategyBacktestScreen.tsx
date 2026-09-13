@@ -20,6 +20,7 @@ import { walkForward, type WalkForwardResult } from '@/quant/walkForward';
 import { gridSearch, type OptimizeEntry } from '@/quant/optimize';
 import { buildScanGrid, strategyWithParams, formatParamCombo } from '@/quant/paramScan';
 import { formatBacktestReport } from '@/quant/backtestReport';
+import { runBuyHold, excessVsBuyHold, type BuyHoldMetrics } from '@/quant/buyHold';
 import { getGroups } from '@/data/repositories/WatchlistRepository';
 import type { Symbol, Candle } from '@/data/api';
 import { displaySymbol } from '@/domain';
@@ -49,6 +50,8 @@ type Detail = {
   alignedNav: { strategyNav: number; benchmarkNav: number }[];
   benchMetrics: BenchmarkMetrics | null;
   walk: WalkForwardResult | null;
+  buyHold: BuyHoldMetrics;
+  buyHoldExcessPct: number;
   benchNote?: string;
   adjustNote?: string;
 };
@@ -92,6 +95,7 @@ export function StrategyBacktestScreen({
   const [applying, setApplying] = useState<string | null>(null);
   const [slippageBp, setSlippageBp] = useState(0);
   const [initCash, setInitCash] = useState(100_000);
+  const [showAllTrades, setShowAllTrades] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -221,6 +225,7 @@ export function StrategyBacktestScreen({
           exit: profile.exit,
           trainRatio: 0.7,
         });
+        const buyHold = runBuyHold(candles, initCash);
         setDetail({
           symbol: row.symbol,
           result,
@@ -228,9 +233,12 @@ export function StrategyBacktestScreen({
           alignedNav: points.map((p) => ({ strategyNav: p.strategyNav, benchmarkNav: p.benchmarkNav })),
           benchMetrics,
           walk,
+          buyHold,
+          buyHoldExcessPct: excessVsBuyHold(result.totalReturnPct, buyHold.totalReturnPct),
           benchNote,
           adjustNote: row.adjustNote,
         });
+        setShowAllTrades(false);
       } finally {
         setDetailLoading(false);
       }
@@ -437,6 +445,41 @@ export function StrategyBacktestScreen({
                 </Card>
 
                 <Card>
+                  <Text style={styles.cardTitle}>策略 vs 买入持有（同标的）</Text>
+                  <LineGraphView
+                    values={detail.result.equity}
+                    valuesB={detail.buyHold.equity}
+                    labelA="策略"
+                    labelB="买入持有"
+                    trendingUp={detail.buyHoldExcessPct >= 0}
+                    colorB={colors.textSecondary}
+                    height={140}
+                    enableGradient={false}
+                  />
+                  <View style={styles.statRow}>
+                    <SummaryCol
+                      value={fmtPct(detail.result.totalReturnPct)}
+                      label="策略收益"
+                      color={detail.result.totalReturnPct >= 0 ? colors.up : colors.down}
+                    />
+                    <SummaryCol
+                      value={fmtPct(detail.buyHold.totalReturnPct)}
+                      label="买入持有"
+                      color={detail.buyHold.totalReturnPct >= 0 ? colors.up : colors.down}
+                    />
+                    <SummaryCol
+                      value={fmtPct(detail.buyHoldExcessPct)}
+                      label="超额"
+                      color={detail.buyHoldExcessPct >= 0 ? colors.up : colors.down}
+                    />
+                  </View>
+                  <Text style={styles.desc}>
+                    买入持有：首日 close 全仓 {detail.buyHold.shares} 股 @ {detail.buyHold.buyPrice.toFixed(2)} 持有到期
+                    {detail.buyHoldExcessPct < 0 ? ' · 策略跑输简单持有，检查成本/换手' : ''}
+                  </Text>
+                </Card>
+
+                <Card>
                   <Text style={styles.cardTitle}>绩效</Text>
                   <View style={styles.statRow}>
                     <SummaryCol
@@ -529,13 +572,17 @@ export function StrategyBacktestScreen({
                   {detail.result.trades.length === 0 ? (
                     <Text style={styles.desc}>区间内无成交</Text>
                   ) : (
-                    detail.result.trades
-                      .slice(-12)
-                      .reverse()
-                      .map((t, i) => <TradeRow key={i} trade={t} colors={colors} styles={styles} />)
+                    (showAllTrades
+                      ? [...detail.result.trades].reverse()
+                      : detail.result.trades.slice(-12).reverse()
+                    ).map((t, i) => <TradeRow key={i} trade={t} colors={colors} styles={styles} />)
                   )}
                   {detail.result.trades.length > 12 && (
-                    <Text style={styles.desc}>仅显示最近 12 笔</Text>
+                    <TouchableOpacity onPress={() => setShowAllTrades((v) => !v)} hitSlop={8}>
+                      <Text style={styles.link}>
+                        {showAllTrades ? '收起' : `展开全部 ${detail.result.trades.length} 笔`}
+                      </Text>
+                    </TouchableOpacity>
                   )}
                 </Card>
 
