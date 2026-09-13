@@ -373,6 +373,61 @@ export function StrategyBacktestScreen({
               {note ? <Text style={styles.desc}>{note}</Text> : null}
             </Card>
 
+            {/* 池内收益对比条 */}
+            {!running && okRows.length >= 2 && (
+              <Card style={styles.summary}>
+                <Text style={styles.cardTitle}>池内收益对比</Text>
+                {(() => {
+                  const ranked = [...okRows]
+                    .map((r) => ({
+                      key: `${r.symbol.code}_${r.symbol.exchange}`,
+                      name: displaySymbol(r.symbol),
+                      ret: r.result!.totalReturnPct,
+                      dd: r.result!.maxDrawdownPct,
+                    }))
+                    .sort((a, b) => b.ret - a.ret);
+                  const maxAbs = Math.max(...ranked.map((x) => Math.abs(x.ret)), 1);
+                  return ranked.map((x) => {
+                    const pctW = (Math.abs(x.ret) / maxAbs) * 100;
+                    const pos = x.ret >= 0;
+                    return (
+                      <TouchableOpacity
+                        key={x.key}
+                        style={styles.cmpRow}
+                        onPress={() => {
+                          const row = okRows.find(
+                            (r) => `${r.symbol.code}_${r.symbol.exchange}` === x.key,
+                          );
+                          if (row) loadDetail(row).catch(() => undefined);
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.cmpName} numberOfLines={1}>
+                          {x.name}
+                        </Text>
+                        <View style={styles.cmpBarWrap}>
+                          <View
+                            style={[
+                              styles.cmpBar,
+                              {
+                                width: `${Math.max(4, pctW)}%`,
+                                backgroundColor: pos ? colors.up : colors.down,
+                                alignSelf: pos ? 'flex-start' : 'flex-end',
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[styles.cmpRet, { color: pos ? colors.up : colors.down }]}>
+                          {fmtPct(x.ret, 1)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  });
+                })()}
+                <Text style={styles.desc}>点击行进入详报 · 条长按收益绝对值</Text>
+              </Card>
+            )}
+
             {rows.map((r, i) => {
               const key = `${r.symbol.code}_${r.symbol.exchange}`;
               const active = key === selectedKey;
@@ -720,6 +775,23 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
 
     summary: { marginTop: spacing.md },
     summaryTitle: { color: colors.text, fontSize: fontSize.sm, fontWeight: '600' },
+    cmpRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: spacing.sm,
+      gap: spacing.sm,
+    },
+    cmpName: { width: 72, color: colors.textSecondary, fontSize: fontSize.xs },
+    cmpBarWrap: {
+      flex: 1,
+      height: 10,
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 5,
+      overflow: 'hidden',
+      justifyContent: 'center',
+    },
+    cmpBar: { height: 8, borderRadius: 4 },
+    cmpRet: { width: 56, textAlign: 'right', fontSize: fontSize.xs, fontWeight: '700' },
     statRow: { flexDirection: 'row', marginTop: spacing.md },
     summaryCol: { flex: 1, alignItems: 'center' },
     summaryNum: { fontSize: fontSize.md, fontWeight: fontWeight.heavy as any },
