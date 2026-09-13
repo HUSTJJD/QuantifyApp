@@ -19,6 +19,7 @@ import { alignByDate, computeBenchmarkMetrics, type BenchmarkMetrics } from '@/q
 import { walkForward, type WalkForwardResult } from '@/quant/walkForward';
 import { gridSearch, type OptimizeEntry } from '@/quant/optimize';
 import { buildScanGrid, strategyWithParams, formatParamCombo } from '@/quant/paramScan';
+import { formatBacktestReport } from '@/quant/backtestReport';
 import { getGroups } from '@/data/repositories/WatchlistRepository';
 import type { Symbol, Candle } from '@/data/api';
 import { displaySymbol } from '@/domain';
@@ -91,8 +92,29 @@ export function StrategyBacktestScreen({
   const [applying, setApplying] = useState<string | null>(null);
   const [slippageBp, setSlippageBp] = useState(0);
   const [initCash, setInitCash] = useState(100_000);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const exportText = useMemo(() => {
+    if (!profile || running || rows.length === 0) return '';
+    return formatBacktestReport({
+      profile,
+      note,
+      slippageBp,
+      initCash,
+      pool: rows.map((r) => ({ symbol: r.symbol, ok: r.ok, result: r.result, reason: r.reason })),
+      detail: detail
+        ? {
+            symbol: detail.symbol,
+            result: detail.result,
+            benchMetrics: detail.benchMetrics,
+            walk: detail.walk,
+            adjustNote: detail.adjustNote,
+          }
+        : null,
+    });
+  }, [profile, running, rows, note, slippageBp, initCash, detail]);
 
   useEffect(() => {
     (async () => {
@@ -288,7 +310,15 @@ export function StrategyBacktestScreen({
           <Text style={styles.back}>‹ 返回</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>回测报告</Text>
-        <View style={{ width: 48 }} />
+        <TouchableOpacity
+          onPress={() => setExportOpen((v) => !v)}
+          disabled={!exportText}
+          hitSlop={8}
+        >
+          <Text style={[styles.exportBtn, !exportText && { color: colors.textSecondary }]}>
+            {exportOpen ? '收起' : '导出'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -551,6 +581,17 @@ export function StrategyBacktestScreen({
               成本模型：A 股默认佣金（万 2.5，最低 5 元）、印花税（卖出 0.05%）、过户费（0.001%），收盘价近似撮合。
               复权：不复权 K 线 + 本地复权因子，除权日按分红/送转调整现金与股数（不使用上游已复权价）。结果用于策略对比，不代表未来收益。
             </Text>
+
+            {exportOpen && exportText ? (
+              <Card style={{ marginTop: spacing.md }}>
+                <Text style={styles.cardTitle}>导出文本（可长按复制）</Text>
+                <ScrollView style={styles.exportScroll} nestedScrollEnabled>
+                  <Text selectable style={styles.exportBody}>
+                    {exportText}
+                  </Text>
+                </ScrollView>
+              </Card>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -606,6 +647,9 @@ function makeStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
     },
     back: { color: colors.primary, fontSize: fontSize.md, fontWeight: '600' },
     headerTitle: { color: colors.text, fontSize: fontSize.md, fontWeight: fontWeight.bold as any },
+    exportBtn: { color: colors.primary, fontSize: fontSize.md, fontWeight: '600' },
+    exportScroll: { maxHeight: 220, marginTop: spacing.sm },
+    exportBody: { color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 16 },
     title: { color: colors.text, fontSize: fontSize.xl, fontWeight: fontWeight.heavy as any },
     desc: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 4, lineHeight: 16 },
     slipRow: {

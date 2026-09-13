@@ -61,7 +61,8 @@
 5. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题
 6. ~~回测中心 / nextOpen / 滑点 / 资金口径~~ 已交付（backtest-center）
 7. ~~策略绩效曲线进专属模拟盘~~ 已交付：strategyNavStore 按日快照 + NavVsBenchmark
-8. 可选：回测报告导出
+8. ~~回测报告导出~~ 已交付：backtestReport 纯文本 + 报告页「导出」长按复制
+9. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题（与 #5 合并跟踪）
 
 ## 质量门
 
