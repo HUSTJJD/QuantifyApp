@@ -64,6 +64,8 @@
 8. ~~回测报告导出~~ 已交付：backtestReport 纯文本 + 报告页「导出」长按复制
 9. 真机按 `docs/QA_CHECKLIST.md` 走一遍并记问题（与 #5 合并跟踪）
 
+**备注（2026-09-13）**：代码交付项已清空。已清理 useLocalKline 临时 debugKline 探针（指数周线闪退定位完成后）。下一高 ROI 方向建议：真机 QA 问题清单 → 按问题再开 change。
+
 ## 质量门
 
 - `npm run typecheck:app` — 仅 App 源（排除 stock-sdk）

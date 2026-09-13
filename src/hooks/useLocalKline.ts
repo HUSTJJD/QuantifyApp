@@ -10,7 +10,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCandlesLocal, getCandlesFallback } from '@/data/db/KlineReader';
-import { logger } from '@/utils/logger';
 import type { AdjustMode } from '@/quant/adjustment';
 import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
@@ -44,8 +43,6 @@ export function useLocalKline(
       // 1) 本地优先：读不复权日 K → 聚合 → 复权
       const local = await getCandlesLocal(symbol, period, adjust);
       if (alive && local && local.length > 0) {
-        // TODO(debug): 临时周/月 K 数据探针，定位后移除
-        if (period !== 'day') debugKline('local', symbol, period, adjust, local.slice(-count));
         setState({ data: local.slice(-count), loading: false, error: null });
         return;
       }
@@ -53,7 +50,6 @@ export function useLocalKline(
       try {
         const net = await getCandlesFallback(symbol, period, adjust, count);
         if (alive) {
-          if (period !== 'day') debugKline('net', symbol, period, adjust, net);
           setState({ data: net, loading: false, error: null });
         }
       } catch (e) {
@@ -78,49 +74,6 @@ export function useLocalKline(
   }, [tick, symbol, period, adjust, count]);
 
   return { ...state, reload };
-}
-
-/** TODO(debug): 临时探针 —— 打印周/月 K 数据概要，用于定位指数周线闪退。定位后删除。 */
-function debugKline(
-  from: 'local' | 'net',
-  symbol: Symbol,
-  period: KlinePeriod,
-  adjust: AdjustMode,
-  candles: Candle[],
-): void {
-  try {
-    const n = candles.length;
-    let bad = 0;
-    let badDateTime = 0;
-    const badIdx: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const c = candles[i];
-      const ts = new Date(c.datetime).getTime();
-      if (!Number.isFinite(ts)) { badDateTime++; if (badIdx.length < 5) badIdx.push(i); }
-      const nums = [c.open, c.high, c.low, c.close, c.volume, c.amount];
-      for (const v of nums) {
-        if (typeof v !== 'number' || (!Number.isFinite(v) && v !== undefined)) { bad++; if (badIdx.length < 5) badIdx.push(i); }
-      }
-    }
-    const head = candles.slice(0, 3);
-    const tail = candles.slice(-3);
-    const sample = (arr: Candle[]) =>
-      arr.map((c) => ({ dt: c.datetime, o: c.open, h: c.high, l: c.low, cl: c.close, v: c.volume, a: c.amount }));
-    logger.debug(
-      'useLocalKline',
-      `${from} ${symbol.code}.${symbol.exchange} ${period} adjust=${adjust}`,
-      {
-        n,
-        badNonFinite: bad,
-        badDateTime,
-        badIdx,
-        head: sample(head),
-        tail: sample(tail),
-      },
-    );
-  } catch (e) {
-    logger.warn('useLocalKline', 'kline-debug error', { error: String(e) });
-  }
 }
 
 
