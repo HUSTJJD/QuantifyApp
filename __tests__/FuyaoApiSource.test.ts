@@ -3,7 +3,7 @@
  * mock @opptrix/fuyao 的 FuyaoClient，不发起真实网络。
  */
 import { FuyaoApiSource } from '@/data/api/sources/FuyaoApiSource';
-import { FuyaoApiError } from '@opptrix/fuyao';
+import { FuyaoApiError, FuyaoHttpError, FuyaoTimeoutError } from '@opptrix/fuyao';
 import type { Symbol } from '@/data/api';
 
 const SYM: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
@@ -207,6 +207,84 @@ describe('FuyaoApiSource 错误归一化', () => {
     (s as any).get();
     expect(mockInstances).toHaveLength(1);
     expect(mockInstances[0].apiKey).toBe('my-key');
+  });
+});
+
+describe('FuyaoApiSource guard —— 快速瞬态故障有界退避重试', () => {
+  const okKline = {
+    code: 0, message: '', request_id: 'x', data: {
+      timestamp: 1,
+      item: [{ date_ms: 1704067200000, open_price: 100, high_price: 105, low_price: 99, close_price: 104, volume: 1000, turnover: 104000 }],
+    },
+  };
+
+  it('HTTP 429 限流：退避后重试，第二次成功即返回', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = prepared();
+      const hist = clientOf(s).aShare.prices.historical;
+      hist.mockRejectedValueOnce(new FuyaoHttpError('rate limited', '/api/a-share/prices/historical', 429, 'rid'));
+      hist.mockResolvedValueOnce(okKline);
+      const p = s.getKline({ symbol: SYM, period: 'day' });
+      p.catch(() => {}); // 防止 timer 推进期间的 unhandled rejection
+      await jest.advanceTimersByTimeAsync(400);
+      const candles = await p;
+      expect(hist).toHaveBeenCalledTimes(2);
+      expect(candles).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('业务码 4001 限流：退避后重试，第二次成功即返回', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = prepared();
+      const hist = clientOf(s).aShare.prices.historical;
+      hist.mockRejectedValueOnce(new FuyaoApiError(4001, 'rate limit', 'rid', '/api/a-share/prices/historical'));
+      hist.mockResolvedValueOnce(okKline);
+      const p = s.getKline({ symbol: SYM, period: 'day' });
+      p.catch(() => {});
+      await jest.advanceTimersByTimeAsync(400);
+      await p;
+      expect(hist).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('429 持续失败：1 首发 + 3 重试后抛 DataSourceError(429, retryable)', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = prepared();
+      const hist = clientOf(s).aShare.prices.historical;
+      hist.mockRejectedValue(new FuyaoHttpError('rate limited', '/api/a-share/prices/historical', 429, 'rid'));
+      const p = s.getKline({ symbol: SYM, period: 'day' });
+      p.catch(() => {});
+      await jest.advanceTimersByTimeAsync(400 + 800 + 1600);
+      const err = (await p.catch((e: unknown) => e)) as { upstreamCode?: number; retryable: boolean };
+      expect(hist).toHaveBeenCalledTimes(4);
+      expect(err.upstreamCode).toBe(429);
+      expect(err.retryable).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('超时属慢故障：不重试、立即抛错（留给 Router 多源兜底）', async () => {
+    const s = prepared();
+    const hist = clientOf(s).aShare.prices.historical;
+    hist.mockRejectedValueOnce(new FuyaoTimeoutError('/api/a-share/prices/historical', 20000));
+    await expect(s.getKline({ symbol: SYM, period: 'day' })).rejects.toMatchObject({ upstreamCode: 5002 });
+    expect(hist).toHaveBeenCalledTimes(1);
+  });
+
+  it('业务码 3001（标的不存在）非瞬态：不重试', async () => {
+    const s = prepared();
+    const hist = clientOf(s).aShare.prices.historical;
+    hist.mockRejectedValueOnce(new FuyaoApiError(3001, '标的不存在', 'rid', '/api/a-share/prices/historical'));
+    await expect(s.getKline({ symbol: SYM, period: 'day' })).rejects.toMatchObject({ upstreamCode: 3001 });
+    expect(hist).toHaveBeenCalledTimes(1);
   });
 });
 

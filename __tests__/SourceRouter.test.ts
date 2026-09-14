@@ -8,9 +8,10 @@
  *     不同参数 / coalesce=false 时各自独立执行（不过度合并）。
  */
 import { SourceRouter } from '@/data/api/SourceRouter';
-import type { MarketDataSource } from '@/data/api/MarketDataSource';
+import { DataSourceError, type MarketDataSource } from '@/data/api/MarketDataSource';
 import { InflightCoalescer, stableStringify } from '@/data/api/coalesce';
 import { apiStats } from '@/data/api/ApiStabilityStats';
+import { logger } from '@/utils/logger';
 import type { Quote, Symbol } from '@/data/api/types';
 
 const SH: Symbol = { code: '600519', exchange: 'SH', name: '贵州茅台' };
@@ -167,6 +168,78 @@ describe('SourceRouter —— 并发同形请求合并', () => {
     expect(ra).toHaveLength(2);
     expect(ra[0].symbol).toBe(SH);
     expect(rb[1].symbol).toBe(SZ);
+  });
+});
+
+type FlakyBehavior = 'throw429' | 'throw3001' | 'empty';
+
+/** 可控行为源：抛 429（瞬态）/ 抛 3001（持久）/ 如实返回空数组 */
+function makeFlakySrc(id: string, behavior: FlakyBehavior) {
+  const s: Record<string, unknown> = {
+    id,
+    label: id,
+    capabilities: new Set<string>(['getQuotes']),
+    async init() {},
+    async dispose() {},
+    supports(): boolean {
+      return true;
+    },
+    async getQuotes(_symbols: Symbol[]): Promise<Quote[]> {
+      if (behavior === 'throw429') throw new DataSourceError('HTTP 429', id, 429);
+      if (behavior === 'throw3001') throw new DataSourceError('标的不存在', id, 3001);
+      return [];
+    },
+  };
+  return s as unknown as MarketDataSource;
+}
+
+function twoSrcRouter(a: MarketDataSource, b: MarketDataSource): SourceRouter {
+  const factory = (id: string) =>
+    id === a.id ? a : id === b.id ? b : (null as unknown as MarketDataSource);
+  return new SourceRouter({ factory, order: [a.id, b.id], coalesce: false, stableRouting: false });
+}
+
+describe('SourceRouter —— 瞬态失败 + 他源如实返回空 → 降级无数据（LogBox 刷屏修复）', () => {
+  // 注：本组用例 stableRouting=false + 全新 router（新 SourceHealth），不依赖 apiStats 单例状态，
+  //     故不清理单例（后文「稳定优先排序」用例依赖此前的状态残留）。
+
+  it('429(可重试) + 他源如实返回空 → resolve 空数组，不打 console.error', async () => {
+    const r = twoSrcRouter(makeFlakySrc('fuyao', 'throw429'), makeFlakySrc('hithsa', 'empty'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+    try {
+      const res = await r.invoke('getQuotes', [[SH]]);
+      expect(res).toEqual([]);
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('持久故障(3001) + 他源返回空 → 仍抛聚合错误并 console.error', async () => {
+    const r = twoSrcRouter(makeFlakySrc('fuyao', 'throw3001'), makeFlakySrc('hithsa', 'empty'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(r.invoke('getQuotes', [[SH]])).rejects.toThrow(/all data sources failed/);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('partition：全瞬态失败且无结果 → warn + 空，不抛错', async () => {
+    const r = twoSrcRouter(makeFlakySrc('fuyao', 'throw429'), makeFlakySrc('hithsa', 'empty'));
+    const key = (s: Symbol) => `${s.exchange}.${s.code}`;
+    const res = await r.partition(
+      'getQuotes',
+      [SH, SZ],
+      key,
+      (q) => `${q.symbol.exchange}.${q.symbol.code}`,
+      (sub) => [sub],
+    );
+    expect(res).toEqual([]);
   });
 });
 

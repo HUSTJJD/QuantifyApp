@@ -485,6 +485,20 @@ describe('getAdjustmentFactors（复权因子）', () => {
     expect(res[0].dividendPerShare).toBe(3);
     expect(res[0].perShareBonus).toBe(1);
   });
+
+  it('上游如实返回空 → 返回空（新股无分红送转史）', async () => {
+    mockSdk.reference.dividendDetail.mockResolvedValue([]);
+    const s = new StockSdkSource();
+    expect(await s.getAdjustmentFactors(CN('688837'))).toEqual([]);
+  });
+
+  it('请求失败抛 DataSourceError（retryable，不再吞成空数组）', async () => {
+    mockSdk.reference.dividendDetail.mockRejectedValue(new Error('network down'));
+    const s = new StockSdkSource();
+    const err = await s.getAdjustmentFactors(CN('688837')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DataSourceError);
+    expect((err as DataSourceError).retryable).toBe(true);
+  });
 });
 
 describe('getValuations（估值）', () => {
