@@ -37,6 +37,7 @@ This command will move the starter code to the **app-example** directory and cre
 
 ### Other setup steps
 
+- 本项目通过 git 子模块消费本地 [`stock-sdk`](https://github.com/HUSTJJD/stock-sdk)（`"stock-sdk": "file:./stock-sdk"`）。克隆仓库需带 `--recurse-submodules`（或 `git submodule update --init --recursive`）。stock-sdk 的 `dist/` 是构建产物（gitignore 不入库），`npm install` 后的 postinstall 会自动检测并构建它（见 `scripts/build-stock-sdk.js`）——本地已构建时秒过，EAS Build / 新克隆时自动补建，无需手工操作
 - To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
 - If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
