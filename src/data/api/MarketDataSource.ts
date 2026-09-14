@@ -52,13 +52,21 @@ export class DataSourceError extends Error {
     this.upstreamCode = upstreamCode;
   }
 
-  /** 是否可在有界次数内退避重试 */
+  /**
+   * 是否可在有界次数内退避重试（官方契约：限流/服务端异常/网络可重试；
+   * 1xxx-3xxx 属调用方可修复或业务判定，不应重试）。
+   *  - 无 code：网络层错误 → 可重试
+   *  - 业务码：4001 限流、5001-5003 服务端/上游异常 → 可重试
+   *  - HTTP 状态码（fuyao SDK 透传）：429 限流、5xx 服务端异常 → 可重试
+   */
   get retryable(): boolean {
     const code = this.upstreamCode;
     if (code === undefined) return true; // 网络错误（无上游 code）
-    if (code === 4001) return true; // 限流
     if (typeof code === 'string') return code.startsWith('500');
-    return code >= 5000 && code <= 5003;
+    if (code === 4001) return true; // 限流（业务码）
+    if (code >= 5000 && code <= 5003) return true; // 服务端/上游异常（业务码）
+    if (code >= 400 && code < 600) return code === 429 || code >= 500; // HTTP 层：限流 / 服务端异常
+    return false;
   }
 
   /** 是否为「不支持该能力」的正常兜底错误（不应刷 ERROR 日志） */

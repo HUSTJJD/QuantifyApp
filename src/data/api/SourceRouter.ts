@@ -241,6 +241,8 @@ export class SourceRouter {
     // 是否有源「如实返回空数组」（列表类方法的无数据信号），以及是否有真实故障。
     let hasEmptyArray = false;
     let hasRealError = false;
+    // 记录真实抛出的异常（不含空结果占位 / unsupported），供「全瞬态失败」降级判断
+    const realErrors: unknown[] = [];
 
     for (const id of order) {
       const src = this.trySource(id);
@@ -278,6 +280,7 @@ export class SourceRouter {
         // 「不支持」属于正常兜底路径，不计入失败统计
         if (isUnsupportedError(e)) continue;
 
+        realErrors.push(e);
         // 真实故障：记录统计 + 熔断计数（此处不逐条打日志——
         // 多源兜底链中单个源失败是预期路径，只有全部失败时才在下方汇总提示）
         hasRealError = true;
@@ -336,6 +339,20 @@ export class SourceRouter {
           symbol: formatSymbolTag(a) || 'n/a',
         });
       }
+      return [];
+    }
+
+    // 所有真实故障都是瞬态错误（限流 429 / 服务端 5xx，均可重试）且有源如实返回了空数组
+    // → 视为「无数据」：他源如实返回的空是权威结论（如新股无分红送转史），瞬态失败不能推翻它；
+    //   否则共享 Key 被 429 限流时每次轮询都会 console.error「全部源失败」刷 LogBox。
+    if (
+      hasEmptyArray &&
+      realErrors.length > 0 &&
+      realErrors.every((e) => e instanceof DataSourceError && e.retryable)
+    ) {
+      logger.warn('SourceRouter', `${method} 各源瞬态失败(可重试)且他源如实返回空，按无数据处理`, {
+        symbol: formatSymbolTag(a) || 'n/a',
+      });
       return [];
     }
 
@@ -402,6 +419,8 @@ export class SourceRouter {
     const remaining = new Map(items.map((i) => [itemKey(i), i]));
     const collected = new Map<string, MethodRow<M>>();
     const errors: Record<string, unknown> = {};
+    // 记录真实抛出的异常（不含 unsupported），供「全瞬态失败」降级判断
+    const realErrors: unknown[] = [];
 
     for (const id of this.orderedFor(method, [])) {
       if (remaining.size === 0) break;
@@ -446,6 +465,7 @@ export class SourceRouter {
         // 「不支持」属于正常兜底，跳过
         if (isUnsupportedError(e)) continue;
 
+        realErrors.push(e);
         // 真实故障：记录统计 + 熔断计数
         apiStats.failure(id, method, e);
         this.health.failure(id);
@@ -460,6 +480,17 @@ export class SourceRouter {
     if (ordered.length === 0) {
       // 没有真实异常且什么都没取到 → 各源“如实返回空”，视为无数据而非故障
       if (Object.keys(errors).length === 0) return [];
+
+      // 所有真实故障都是瞬态错误（限流/服务端异常，可重试）→ 降级 warn + 空，避免 429 刷 LogBox
+      if (
+        realErrors.length > 0 &&
+        realErrors.every((e) => e instanceof DataSourceError && e.retryable)
+      ) {
+        console.warn(
+          `[SourceRouter] ${method} 批量瞬态失败(可重试)按无数据处理: ${items.map(itemKey).slice(0, 5).join(',')}`,
+        );
+        return [];
+      }
 
       // 全部失败但都是「未知标的/空/不支持」→ 返回空，避免 jj007000 等脏码刷 LogBox
       const allSoft =

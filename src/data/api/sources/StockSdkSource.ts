@@ -672,24 +672,23 @@ export class StockSdkSource extends BaseMarketDataSource {
     ) {
       return [];
     }
-    try {
-      const raw: any[] = await this.guard(
-        this.sdk.reference.dividendDetail(toSdkCode(symbol)),
-        '复权因子失败',
-      );
-      let items = (raw ?? []).map((it: any) => ({
-        symbol,
-        ticker: String(it.code ?? symbol.code),
-        exDateMs: it.date ? new Date(it.date).getTime() : 0,
-        dividendPerShare: numOrNull(it.dividend) ?? 0,
-        perShareBonus: numOrNull(it.bonus) ?? 0,
-      }));
-      if (from) items = items.filter((i) => i.exDateMs >= new Date(from).getTime());
-      if (to) items = items.filter((i) => i.exDateMs <= new Date(to).getTime());
-      return items;
-    } catch {
-      return [];
-    }
+    // 请求失败**不再吞成空数组**：guard 会归一化为 DataSourceError（code=undefined → retryable），
+    // 交由 SourceRouter 判定——若其它源如实返回了空，Router 会降级 warn + 空；真故障才报错。
+    // 如实的空结果（上游正常返回 []，如新股无分红史）照常返回 []。
+    const raw: any[] = await this.guard(
+      this.sdk.reference.dividendDetail(toSdkCode(symbol)),
+      '复权因子失败',
+    );
+    let items = (raw ?? []).map((it: any) => ({
+      symbol,
+      ticker: String(it.code ?? symbol.code),
+      exDateMs: it.date ? new Date(it.date).getTime() : 0,
+      dividendPerShare: numOrNull(it.dividend) ?? 0,
+      perShareBonus: numOrNull(it.bonus) ?? 0,
+    }));
+    if (from) items = items.filter((i) => i.exDateMs >= new Date(from).getTime());
+    if (to) items = items.filter((i) => i.exDateMs <= new Date(to).getTime());
+    return items;
   }
 
   /** 估值：A 股 FullQuote 自带 pe/pb 等字段 */
