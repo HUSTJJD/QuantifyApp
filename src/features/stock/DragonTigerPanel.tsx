@@ -17,7 +17,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Icons } from '@/theme/icons';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 
 interface DragonTigerPanelProps {
   symbol: Symbol;
@@ -38,9 +38,9 @@ export function DragonTigerPanel({ symbol }: DragonTigerPanelProps): React.JSX.E
       .getDragonTigerList()
       .then((list) => {
         if (!mounted) return;
-        const key = toFullCode(symbol);
+        const key = symbolKey(symbol);
         const found = list.stockItems.find(
-          (s) => toFullCode(s.symbol) === key,
+          (s) => symbolKey(s.symbol) === key,
         );
         setData(found ?? null);
       })

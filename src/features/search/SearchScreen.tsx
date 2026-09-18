@@ -19,7 +19,7 @@ import type { Instrument, Symbol } from '@/data/api';
 import { storage, StorageKeys } from '@/data/db/storage';
 import { spacing, fontSize, radius } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import { matchNlScan, NL_SCAN_HINTS } from '@/quant/nlScan';
 
 const HOT_SEARCHES: { code: string; exchange: Symbol['exchange']; name: string }[] = [
@@ -166,13 +166,13 @@ export function SearchScreen({
               <Text style={styles.groupTitle}>{group.title}（{group.items.length}）</Text>
               {group.items.map((item) => (
                 <TouchableOpacity
-                  key={toFullCode(item.symbol)}
+                  key={symbolKey(item.symbol)}
                   style={styles.resultRow}
                   onPress={() => handleSelect(item)}
                 >
                   <View style={styles.resultInfo}>
                     <Text style={styles.resultName}>{item.name || item.symbol.code}</Text>
-                    <Text style={styles.resultCode}>{toFullCode(item.symbol)}</Text>
+                    <Text style={styles.resultCode}>{symbolKey(item.symbol)}</Text>
                   </View>
                   <Icon name={Icons.chevronRight} size={2} color="textSecondary" />
                 </TouchableOpacity>

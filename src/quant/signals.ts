@@ -4,7 +4,7 @@
  */
 import type { Candle, Quote, Symbol } from '@/data/api';
 import type { SignalContribution, TradeSignal } from '@/domain';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import { evaluateProfile, legLabel, type StrategyProfile } from './profile';
 
 export type { TradeSignal } from '@/domain';
@@ -41,7 +41,7 @@ export function computeProfileSignal(
 
   return {
     symbol,
-    symbolKey: toFullCode(symbol),
+    symbolKey: symbolKey(symbol),
     side: combined.side,
     strength: combined.strength,
     profileId: profile.id,

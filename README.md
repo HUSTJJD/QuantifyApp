@@ -40,6 +40,24 @@ tests/             # 统一测试目录（data / quant / ui / domain / integrati
 - `templateId` **只属于腿**，档案上没有「信号内核」绑定。
 - 信号与自动交易都以档案为唯一驱动：`src/quant/runtime.ts`。
 
+## 数据源与符号
+
+- App 规范符号：对象 `{ code, exchange }`，唯一字符串键 `symbolKey()` = **`CODE.EXCHANGE`**（如 `600519.SH`）。
+- 禁止反序键 `EXCHANGE.CODE`；DB / 缓存 / 信号键一律走 `symbolKey()`。
+- 各源线格式由 codec 负责（`src/data/api/sources/codecs/`）：
+
+| 源 | codec | 线格式 | 覆盖 |
+|----|-------|--------|------|
+| fuyao | `fuyaoCodec` | thscode `600519.SH` | SH/SZ/BJ/TI/OF |
+| stock-sdk | `stockSdkCodec` | 裸代码 `600519` + 市场 ns | SH/SZ/BJ/HK/US/OF/EM |
+| longport | `longportCodec` | `700.HK` / `AAPL.US` | HK/US |
+| dukascopy | `dukascopyCodec` | instrument id | 全球指数白名单 |
+| fund-api | `fundApiCodec` | 数字基金代码 | OF |
+
+- 可移植能力：`marketData.*`（SourceRouter 自动调度/兜底）。
+- 源专属 API 直通：`marketData.source(id)` + `src.codec`。
+- 本地 SQLite：**无迁移**。`SCHEMA_VERSION` 变更时 `db.delete()` 删库重建，数据不保留。
+
 ## 数据源与子模块
 
 - `stock-sdk`、`FuyaoNPM` 为 git 子模块（`file:` 依赖），克隆请 `--recurse-submodules`。

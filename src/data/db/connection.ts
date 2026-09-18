@@ -1,30 +1,63 @@
 /**
  * 本地 SQLite 连接单例（全库唯一入口）。
  *
- * 背景：改造前 MarketMetaStore 每次调用都 `new SqliteKlineAdapter()`，
- * 每个实例内部各自 `open()` 一个连接 —— 一次同步会打开成百上千个 SQLite 连接
- * （句柄泄漏 + 写锁竞争）。现在连接由本模块独占持有：
- *  - 懒打开，首次访问时建库建表（applySchema 幂等）；
- *  - 并发调用共用同一次打开过程（opening Promise 去重），不会重复 open；
- *  - K 线适配器与 MarketMetaStore 共用同一连接，跨表事务/一致性才有保障；
- *  - 关闭由 closeSqlite() 统一负责，适配器不再持有连接所有权。
+ * 策略：**无数据迁移**。打开后读 schema_version：
+ *  - 与 schema.SCHEMA_VERSION 不一致（含全新库 version=0）→ db.delete() 删库重建；
+ *  - 一致 → 复用现有库，applySchema 仅幂等 CREATE IF NOT EXISTS + 打版本。
  *
  * jest / 未接入原生环境：isSqliteAvailable() 恒 false，getSqlite() 返回 null，
- * 各 Store 自动回落到内存实现（单测行为不变）。
+ * 各 Store 自动回落到内存实现。
  */
 import { open } from '@op-engineering/op-sqlite';
 import type { DB } from '@op-engineering/op-sqlite';
-import { applySchema, SQLITE_DB_LOCATION, SQLITE_DB_NAME } from './schema';
+import {
+  applySchema,
+  needsDatabaseReset,
+  readSchemaVersion,
+  SQLITE_DB_LOCATION,
+  SQLITE_DB_NAME,
+} from './schema';
 
 /** 当前进程已打开的连接（null = 尚未打开） */
 let conn: DB | null = null;
 /** 正在打开中的 Promise（并发去重） */
 let opening: Promise<DB> | null = null;
 
+function openDb(): DB {
+  return open({ name: SQLITE_DB_NAME, location: SQLITE_DB_LOCATION });
+}
+
 /** 原生 SQLite 是否可用（jest / 无原生模块时为 false） */
 export function isSqliteAvailable(): boolean {
   if (typeof jest !== 'undefined' || process.env.NODE_ENV === 'test') return false;
   return true;
+}
+
+async function openAndMigrate(): Promise<DB> {
+  let db = openDb();
+  const stored = await readSchemaVersion(db);
+  if (needsDatabaseReset(stored)) {
+    // 版本不一致：删库重建（不迁移）。delete 后重新 open 拿到空库文件。
+    try {
+      db.delete();
+    } catch {
+      // 文件可能尚未落盘 / 已删除
+    }
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    db = openDb();
+  }
+  try {
+    await db.execute('PRAGMA journal_mode = WAL');
+    await db.execute('PRAGMA synchronous = NORMAL');
+  } catch {
+    // PRAGMA 失败不影响可用性
+  }
+  await applySchema(db);
+  return db;
 }
 
 /** 打开（或复用）本地库连接；不可用时返回 null */
@@ -34,15 +67,7 @@ export async function getSqlite(): Promise<DB | null> {
   if (opening) return opening;
 
   opening = (async () => {
-    const db = open({ name: SQLITE_DB_NAME, location: SQLITE_DB_LOCATION });
-    // WAL：读写不互相阻塞，全市场批量同步时读路径（盯盘）不被写事务卡住
-    try {
-      await db.execute('PRAGMA journal_mode = WAL');
-      await db.execute('PRAGMA synchronous = NORMAL');
-    } catch {
-      // PRAGMA 失败不影响可用性（个别平台/只读场景），继续走默认配置
-    }
-    await applySchema(db);
+    const db = await openAndMigrate();
     conn = db;
     return db;
   })();
@@ -59,10 +84,28 @@ export function closeSqlite(): void {
   try {
     conn?.close();
   } catch {
-    // 关闭失败无需向上抛：连接不存在或已关闭都视为成功
+    // 关闭失败无需向上抛
   }
   conn = null;
   opening = null;
+}
+
+/** 强制删库重建（调试/设置页「清空本地数据」用） */
+export async function resetSqliteDatabase(): Promise<void> {
+  closeSqlite();
+  if (!isSqliteAvailable()) return;
+  const db = openDb();
+  try {
+    db.delete();
+  } catch {
+    // ignore
+  }
+  try {
+    db.close();
+  } catch {
+    // ignore
+  }
+  // 下次 getSqlite 会重新 open + applySchema
 }
 
 /** 诊断用：连接状态 */

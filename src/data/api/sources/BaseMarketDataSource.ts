@@ -14,6 +14,7 @@ import { DataSourceError } from '../MarketDataSource';
 import type { DataSourceMethod, MarketDataSource, MethodArgs } from '../MarketDataSource';
 import { capabilitySupports, EMPTY_CAPABILITY_SPEC } from '../capability';
 import type { CapabilitySpec } from '../capability';
+import type { SymbolCodec } from '../codec';
 import type {
   Symbol,
   Quote,
@@ -60,6 +61,8 @@ import type {
 export abstract class BaseMarketDataSource implements MarketDataSource {
   abstract readonly id: string;
   abstract readonly label: string;
+  /** 符号编解码器：子类必须提供，出站/入站只走 codec */
+  abstract readonly codec: SymbolCodec;
   abstract init(): Promise<void>;
   abstract dispose(): Promise<void>;
 

@@ -82,8 +82,8 @@ describe('KlineDatabase 行级存储', () => {
     // 手动构造不同 updatedAt 的行
     const adapter = new AsyncStorageKlineAdapter();
     await adapter.upsert([
-      { symbol: 'SH.600519', period: 'day', ts: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, amount: 0, updatedAt: old },
-      { symbol: 'SH.600519', period: 'day', ts: 2, open: 2, high: 2, low: 2, close: 2, volume: 1, amount: 0, updatedAt: fresh },
+      { symbol: '600519.SH', period: 'day', ts: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, amount: 0, updatedAt: old },
+      { symbol: '600519.SH', period: 'day', ts: 2, open: 2, high: 2, low: 2, close: 2, volume: 1, amount: 0, updatedAt: fresh },
     ]);
     const removed = await db.prune(fresh - 1);
     expect(removed).toBe(1);

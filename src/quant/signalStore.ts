@@ -5,7 +5,7 @@
 import { quantStore } from '@/data/db/QuantStore';
 import type { Symbol } from '@/data/api';
 import type { TradeSignal } from '@/domain';
-import { toFullCode } from '@/domain';
+import { parseSymbolKey, symbolKey } from '@/domain';
 
 const memory = new Map<string, TradeSignal>();
 
@@ -34,7 +34,7 @@ export function saveSignal(sig: TradeSignal): void {
 }
 
 export function getForSymbol(symbol: Symbol): TradeSignal[] {
-  const k = toFullCode(symbol);
+  const k = symbolKey(symbol);
   return [...memory.values()].filter((s) => s.symbolKey === k);
 }
 
@@ -65,9 +65,9 @@ export async function getAll(): Promise<TradeSignal[]> {
     } catch {
       // ignore
     }
-    const [exchange, code] = symbolKey.split('.');
+    const parsed = parseSymbolKey(symbolKey);
     const sig: TradeSignal = {
-      symbol: { code: code ?? r.code, exchange: (exchange || r.exchange) as Symbol['exchange'] },
+      symbol: { code: parsed.code, exchange: parsed.exchange },
       symbolKey,
       side: r.side as TradeSignal['side'],
       strength: r.strength,

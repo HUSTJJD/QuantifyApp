@@ -12,6 +12,7 @@
  */
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
 import type { Symbol } from '@/data/api';
+import { symbolKey } from '@/domain/symbol';
 import { storage, StorageKeys } from './storage';
 import { getSqlite } from './connection';
 
@@ -83,9 +84,9 @@ const SQL_SET_META =
 
 type Row = Record<string, Scalar>;
 
-/** 标的 → 行键（exchange.code，与 K 线库的 symbolKey 一致） */
+/** 标的 → 行键（domain.symbolKey = CODE.EXCHANGE） */
 function keyOf(s: Symbol): string {
-  return `${s.exchange}.${s.code}`;
+  return symbolKey(s);
 }
 
 function toSymbol(r: Row): Symbol {

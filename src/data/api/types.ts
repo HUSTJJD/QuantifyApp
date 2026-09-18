@@ -12,6 +12,13 @@
 // 基础类型
 // ============================================================
 
+/**
+ * 统一标的标识与市场枚举。
+ * 领域真相源在 domain/symbol（AppSymbol / symbolKey = CODE.EXCHANGE）；
+ * 此处 re-export 保持 '@/data/api' 既有 import 路径可用。
+ */
+import type { AppSymbol } from '@/domain/symbol';
+
 /** 市场分类 */
 export type Market = 'A' | 'HK' | 'US';
 
@@ -28,12 +35,8 @@ export type AssetType =
   | 'fund-lof'
   | 'fund-reits';
 
-/** 统一标的标识（thscode 风格，如 600519.SH / 00700.HK） */
-export interface Symbol {
-  code: string;
-  exchange: Exchange;
-  name?: string;
-}
+/** 统一标的标识（AppSymbol；规范字符串键见 domain.symbolKey = CODE.EXCHANGE） */
+export type Symbol = AppSymbol;
 
 /** K 线周期 */
 export type KlinePeriod = 'day' | 'week' | 'month' | '1m' | '5m' | '15m' | '30m' | '60m';

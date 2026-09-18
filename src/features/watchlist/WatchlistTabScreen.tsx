@@ -29,7 +29,7 @@ import {
 } from '@/data/repositories/WatchlistRepository';
 import { userStore } from '@/data/db/UserStore';
 import type { WatchlistGroup } from '@/data/repositories/WatchlistRepository';
-import { toFullCode, displaySymbol } from '@/domain';
+import { symbolKey, displaySymbol } from '@/domain';
 import type { Symbol, Quote } from '@/data/api';
 import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -128,7 +128,12 @@ export function WatchlistTabScreen({
 
   const activeSeg = segments.find((s) => s.id === activeId) ?? segments[0];
   const watchSymbols = useMemo(() => activeSeg?.symbols ?? [], [activeSeg]);
-  const watchQuotes = useQuotes(watchSymbols, 'stock', focused);
+  const {
+    data: watchData,
+    loading: watchLoading,
+    error: watchError,
+    reload: reloadWatchQuotes,
+  } = useQuotes(watchSymbols, 'stock', focused);
   const { buys, sells } = useSignals();
 
   useEffect(() => {
@@ -141,11 +146,11 @@ export function WatchlistTabScreen({
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([watchQuotes.reload(), loadMeta()]);
+      await Promise.all([Promise.resolve(reloadWatchQuotes?.()), loadMeta()]);
     } finally {
       setRefreshing(false);
     }
-  }, [watchQuotes, loadMeta]);
+  }, [reloadWatchQuotes, loadMeta]);
 
   const signalByKey = useMemo(() => {
     const map = new Map<string, TradeSignal>();
@@ -156,23 +161,23 @@ export function WatchlistTabScreen({
   const nameByKey = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of watchSymbols) {
-      if (s.name) map.set(toFullCode(s), s.name);
+      if (s.name) map.set(symbolKey(s), s.name);
     }
     return map;
   }, [watchSymbols]);
 
   useEffect(() => {
-    const data = watchQuotes.data;
+    const data = watchData;
     if (!data?.length) return;
     let cancelled = false;
     (async () => {
       try {
         const saved = (await userStore.getWatchlist()) ?? [];
-        const byKey = new Map(saved.map((s) => [toFullCode(s), s]));
+        const byKey = new Map(saved.map((s) => [symbolKey(s), s]));
         let dirty = false;
         for (const q of data) {
           if (!q.symbol.name) continue;
-          const k = toFullCode(q.symbol);
+          const k = symbolKey(q.symbol);
           const cur = byKey.get(k);
           if (cur && !cur.name) {
             byKey.set(k, { ...cur, name: q.symbol.name });
@@ -190,11 +195,11 @@ export function WatchlistTabScreen({
     return () => {
       cancelled = true;
     };
-  }, [watchQuotes.data, loadMeta]);
+  }, [watchData, loadMeta]);
 
   const quotes = sortQuotes(
-    (watchQuotes.data ?? []).map((q) => {
-      const stored = q.symbol.name ? undefined : nameByKey.get(toFullCode(q.symbol));
+    (watchData ?? []).map((q) => {
+      const stored = q.symbol.name ? undefined : nameByKey.get(symbolKey(q.symbol));
       return stored ? { ...q, symbol: { ...q.symbol, name: stored } } : q;
     }),
     sortMode,
@@ -209,7 +214,7 @@ export function WatchlistTabScreen({
       else if (p < 0) down += 1;
     }
     const sigs = quotes.filter((q) => {
-      const s = signalByKey.get(toFullCode(q.symbol));
+      const s = signalByKey.get(symbolKey(q.symbol));
       return s && s.side !== 'hold';
     }).length;
     return { count: quotes.length || watchSymbols.length, upCount: up, downCount: down, signalCount: sigs };
@@ -227,7 +232,7 @@ export function WatchlistTabScreen({
     [loadMeta],
   );
 
-  const isEmpty = ready && watchSymbols.length === 0 && !watchQuotes.loading;
+  const isEmpty = ready && watchSymbols.length === 0 && !watchLoading;
   const emptyDynamic =
     activeSeg && isDynamicGroup(activeSeg) && activeSeg.symbols.length === 0;
   const emptyHint =
@@ -286,13 +291,13 @@ export function WatchlistTabScreen({
         }}
       />
 
-      {watchQuotes.error && (
-        <Text style={styles.errText}>行情加载失败：{watchQuotes.error}</Text>
+      {watchError && (
+        <Text style={styles.errText}>行情加载失败：{watchError}</Text>
       )}
 
       <FlashList
         data={quotes}
-        keyExtractor={(q) => toFullCode(q.symbol)}
+        keyExtractor={(q) => symbolKey(q.symbol)}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         refreshControl={
           <RefreshControl
@@ -304,9 +309,9 @@ export function WatchlistTabScreen({
         }
         ListHeaderComponent={header}
         ListEmptyComponent={
-          watchQuotes.loading && !ready ? (
+          watchLoading && !ready ? (
             <SkeletonRows rows={5} style={{ marginTop: spacing.md }} />
-          ) : watchQuotes.loading ? (
+          ) : watchLoading ? (
             <SkeletonRows rows={3} style={{ marginTop: spacing.md }} />
           ) : emptyDynamic ? (
             <Card style={styles.emptyCard}>
@@ -334,7 +339,7 @@ export function WatchlistTabScreen({
         renderItem={({ item }) => (
           <WatchRow
             item={item}
-            signal={signalByKey.get(toFullCode(item.symbol))}
+            signal={signalByKey.get(symbolKey(item.symbol))}
             onPress={() => onOpen(item.symbol)}
             onDelete={() => onDeleteRow(item.symbol)}
             colors={colors}
@@ -358,7 +363,7 @@ function WatchRow({
   onDelete: () => void;
   colors: ReturnType<typeof useAppTheme>['colors'];
 }): React.JSX.Element {
-  const key = toFullCode(item.symbol);
+  const key = symbolKey(item.symbol);
   const grace = item.last > 0 ? null : peekAddedPrice(key);
   const last = item.last > 0 ? item.last : grace ?? 0;
   const chg = last - item.prevClose;

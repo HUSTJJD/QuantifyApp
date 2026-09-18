@@ -10,6 +10,7 @@
  */
 import type { Symbol } from '@/data/api';
 import type { SignalSide, TradeSignal } from '@/domain';
+import { symbolKey } from '@/domain/symbol';
 import type { ScanHitRow } from '@/data/db/QuantStore';
 
 export interface CandidateItem {
@@ -215,7 +216,7 @@ export function rankCandidatePool(
   const seen = new Set<string>();
   const out: RankedCandidate[] = [];
   for (const it of items) {
-    const k = `${it.symbol.code}.${it.symbol.exchange}`;
+    const k = symbolKey(it.symbol);
     if (seen.has(k)) continue;
     seen.add(k);
     out.push({ ...it, score: scoreCandidate(it, opts, strengthByKey) });

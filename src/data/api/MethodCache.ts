@@ -24,7 +24,7 @@ import { stableStringify } from './coalesce';
 import { isAnyMarketTradingNow, isTradingNow } from '@/utils/trading';
 import type { DataSourceMethod, MethodArgs, MethodResult } from './methods';
 import type { Quote, Symbol } from '@/data/api';
-import { toFullCode } from '@/domain/symbol';
+import { symbolKey } from '@/domain/symbol';
 
 function n(v: unknown): number | null {
   if (v == null || v === '') return null;
@@ -233,7 +233,7 @@ async function readDomain(
       // 必须全部命中才视为缓存有效：部分命中会把缺的标的永远挡在上游之外
       const out: Quote[] = [];
       for (const sym of symbols) {
-        const q = map.get(toFullCode(sym));
+        const q = map.get(symbolKey(sym));
         if (!q) return null;
         out.push(q);
       }
@@ -253,7 +253,7 @@ async function readDomain(
       const p = args[0] as { symbol?: Symbol; code?: string } | undefined;
       const sym = p?.symbol;
       if (!sym) return null;
-      const rows = await dc.listFundFlow(toFullCode(sym));
+      const rows = await dc.listFundFlow(symbolKey(sym));
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: r.tradeDate,
@@ -388,7 +388,7 @@ async function readDomain(
     case 'getValuations': {
       const raw = args[0] as Symbol[] | undefined;
       if (!raw || raw.length === 0) return null;
-      const keys = raw.map(toFullCode);
+      const keys = raw.map(symbolKey);
       const rows = await domainCache().listValuations(keys, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
@@ -449,7 +449,7 @@ async function readDomain(
     case 'getIndexConstituents': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCache().listIndexConstituents(toFullCode(sym), now);
+      const rows = await domainCache().listIndexConstituents(symbolKey(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => {
         const code = s(r.code);
@@ -503,7 +503,7 @@ async function readDomain(
       const boardType = method === 'getIndustryBoardConstituents' ? 'industry' : 'concept';
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCache().listBoardConstituents(boardType, toFullCode(sym), now);
+      const rows = await domainCache().listBoardConstituents(boardType, symbolKey(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: (s(r.code).startsWith('6') ? 'SH' : 'SZ') as Symbol['exchange'] },
@@ -555,7 +555,7 @@ async function readDomain(
     case 'getFundProfile': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const r = await domainCache().getFundProfile(toFullCode(sym), now);
+      const r = await domainCache().getFundProfile(symbolKey(sym), now);
       if (!r) return null;
       return {
         symbol: sym,
@@ -569,7 +569,7 @@ async function readDomain(
     case 'getFundNav': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCache().listFundNavs(toFullCode(sym));
+      const rows = await domainCache().listFundNavs(symbolKey(sym));
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: sym,
@@ -581,7 +581,7 @@ async function readDomain(
     case 'getAdjustmentFactors': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await domainCache().listAdjustmentFactors(toFullCode(sym));
+      const rows = await domainCache().listAdjustmentFactors(symbolKey(sym));
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: sym,
@@ -603,7 +603,7 @@ async function readDomain(
         : method === 'getBalanceSheets' ? 'balance' : 'cash_flow';
       const p = args[0] as { symbol?: Symbol } | undefined;
       if (!p?.symbol) return null;
-      const rows = await dc.listFinancialStatements(toFullCode(p.symbol), stmtType, now);
+      const rows = await dc.listFinancialStatements(symbolKey(p.symbol), stmtType, now);
       if (rows.length === 0) return null;
       return rows.map((r) => {
         try {
@@ -616,7 +616,7 @@ async function readDomain(
     case 'getFinancialIndicators': {
       const p = args[0] as { symbol?: Symbol; report?: string } | undefined;
       if (!p?.symbol || !p.report) return null;
-      const rows = await dc.listFinancialIndicators(toFullCode(p.symbol), p.report, now);
+      const rows = await dc.listFinancialIndicators(symbolKey(p.symbol), p.report, now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         category: s(r.category),
@@ -627,7 +627,7 @@ async function readDomain(
     case 'getDividendDetail': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await dc.listDividendDetails(toFullCode(sym), now);
+      const rows = await dc.listDividendDetails(symbolKey(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: { code: s(r.code), exchange: sym.exchange },
@@ -785,7 +785,7 @@ async function readDomain(
     case 'getNorthboundIndividual': {
       const p = args[0] as { symbol?: Symbol } | undefined;
       if (!p?.symbol) return null;
-      const rows = await dc.listNorthboundIndividuals(toFullCode(p.symbol), now);
+      const rows = await dc.listNorthboundIndividuals(symbolKey(p.symbol), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: s(r.trade_date),
@@ -876,7 +876,7 @@ async function readDomain(
     case 'getFundHoldings': {
       const sym = args[0] as Symbol | undefined;
       if (!sym) return null;
-      const rows = await dc.listFundHoldings(toFullCode(sym), now);
+      const rows = await dc.listFundHoldings(symbolKey(sym), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         symbol: sym,
@@ -918,7 +918,7 @@ async function readDomain(
     case 'getChipDistribution': {
       const p = args[0] as { symbol?: Symbol } | undefined;
       if (!p?.symbol) return null;
-      const rows = await dc.listChips(toFullCode(p.symbol), now);
+      const rows = await dc.listChips(symbolKey(p.symbol), now);
       if (rows.length === 0) return null;
       return rows.map((r) => ({
         date: s(r.trade_date),
@@ -1116,7 +1116,7 @@ async function writeDomain(
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putFundFlow(
         list.map((it) => ({
-          symbolKey: toFullCode(sym),
+          symbolKey: symbolKey(sym),
           code: sym.code,
           exchange: sym.exchange,
           tradeDate: String(it.date ?? ''),
@@ -1291,7 +1291,7 @@ async function writeDomain(
         list.map((it) => {
           const sym = it.symbol as Symbol | undefined;
           return {
-            symbol_key: sym ? toFullCode(sym) : '',
+            symbol_key: sym ? symbolKey(sym) : '',
             code: sym?.code ?? '',
             exchange: sym?.exchange ?? '',
             name: it.name == null ? null : String(it.name),
@@ -1367,9 +1367,9 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<{ symbol?: Symbol; name?: string }>;
       await domainCache().putIndexConstituents(
-        toFullCode(sym),
+        symbolKey(sym),
         list.map((it) => ({
-          index_code: toFullCode(sym),
+          index_code: symbolKey(sym),
           code: it.symbol?.code ?? '',
           name: it.name ?? '',
         })).filter((r) => r.code),
@@ -1428,12 +1428,12 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await domainCache().putBoardConstituents(
-        boardType, toFullCode(sym),
+        boardType, symbolKey(sym),
         list.map((it) => {
           const s2 = it.symbol as Symbol | undefined;
           return {
             board_type: boardType,
-            board_code: toFullCode(sym),
+            board_code: symbolKey(sym),
             code: s2?.code ?? '',
             name: it.name ?? '',
             rank_no: it.rank as number,
@@ -1500,7 +1500,7 @@ async function writeDomain(
       if (!sym) return;
       const obj = (result ?? {}) as Record<string, unknown>;
       await domainCache().putFundProfile(
-        toFullCode(sym),
+        symbolKey(sym),
         {
           ticker: obj.ticker ?? '',
           fund_name: obj.fundName,
@@ -1517,7 +1517,7 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await domainCache().putFundNavs(
-        toFullCode(sym),
+        symbolKey(sym),
         list.map((it) => ({
           nav_date: it.navDate ?? '',
           unit_nav: it.unitNav,
@@ -1532,7 +1532,7 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await domainCache().putAdjustmentFactors(
-        toFullCode(sym),
+        symbolKey(sym),
         list.map((it) => ({
           ticker: it.ticker ?? '',
           ex_date_ms: it.exDateMs ?? 0,
@@ -1557,9 +1557,9 @@ async function writeDomain(
       if (!p?.symbol) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putFinancialStatements(
-        toFullCode(p.symbol), stmtType,
+        symbolKey(p.symbol), stmtType,
         list.map((it) => ({
-          symbol_key: toFullCode(p.symbol!),
+          symbol_key: symbolKey(p.symbol!),
           statement_type: stmtType,
           period: it.period ?? '',
           period_end_ms: it.periodEndMs ?? 0,
@@ -1574,9 +1574,9 @@ async function writeDomain(
       if (!p?.symbol || !p.report) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putFinancialIndicators(
-        toFullCode(p.symbol), p.report,
+        symbolKey(p.symbol), p.report,
         list.map((it) => ({
-          symbol_key: toFullCode(p.symbol!),
+          symbol_key: symbolKey(p.symbol!),
           report: p.report,
           category: it.category ?? '',
           index_id: it.indexId ?? '',
@@ -1591,9 +1591,9 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putDividendDetails(
-        toFullCode(sym),
+        symbolKey(sym),
         list.map((it) => ({
-          symbol_key: toFullCode(sym),
+          symbol_key: symbolKey(sym),
           code: sym.code,
           name: it.name ?? '',
           report_date: it.reportDate,
@@ -1762,10 +1762,10 @@ async function writeDomain(
       if (!p?.symbol) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putNorthboundIndividuals(
-        toFullCode(p.symbol),
+        symbolKey(p.symbol),
         list.map((it) => ({
           trade_date: it.date ?? '',
-          symbol_key: toFullCode(p.symbol!),
+          symbol_key: symbolKey(p.symbol!),
           hold_shares: it.holdShares,
           hold_market_value: it.holdMarketValue,
           hold_ratio_float: it.holdRatioFloat,
@@ -1891,9 +1891,9 @@ async function writeDomain(
       if (!sym) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putFundHoldings(
-        toFullCode(sym),
+        symbolKey(sym),
         list.map((it) => ({
-          symbol_key: toFullCode(sym),
+          symbol_key: symbolKey(sym),
           ticker: it.ticker ?? '',
           stock_name: it.stockName ?? '',
           hold_ratio: it.holdRatio,
@@ -1942,9 +1942,9 @@ async function writeDomain(
       if (!p?.symbol) return;
       const list = (result ?? []) as Array<Record<string, unknown>>;
       await dc.putChips(
-        toFullCode(p.symbol),
+        symbolKey(p.symbol),
         list.map((it) => ({
-          symbol_key: toFullCode(p.symbol!),
+          symbol_key: symbolKey(p.symbol!),
           trade_date: it.date ?? '',
           profit_ratio: it.profitRatio,
           avg_cost: it.avgCost,

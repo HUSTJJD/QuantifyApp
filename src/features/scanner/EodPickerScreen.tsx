@@ -27,7 +27,7 @@ import { setAddedPrice } from '@/features/watchlist/addedPriceCache';
 import { registerJobKind, type ScheduledJob, type JobRun } from '@/quant/scheduler';
 import { sendNotify } from '@/features/notify/channels';
 import { useQuotes } from '@/hooks/useMarketData';
-import { displaySymbol, toFullCode } from '@/domain';
+import { displaySymbol, symbolKey } from '@/domain';
 import type { Symbol, Quote } from '@/data/api';
 
 import type { EodPresetId } from '@/domain';
@@ -100,7 +100,7 @@ export function EodPickerScreen({
 
   const quoteByKey = useMemo(() => {
     const m = new Map<string, Quote>();
-    (quotes ?? []).forEach((q) => m.set(toFullCode(q.symbol), q));
+    (quotes ?? []).forEach((q) => m.set(symbolKey(q.symbol), q));
     return m;
   }, [quotes]);
 
@@ -124,8 +124,8 @@ export function EodPickerScreen({
 
   const addOne = useCallback(async (symbol: Symbol) => {
     await addToWatchlist(symbol);
-    const q = quoteByKey.get(toFullCode(symbol));
-    if (q?.last && q.last > 0) setAddedPrice(toFullCode(symbol), q.last);
+    const q = quoteByKey.get(symbolKey(symbol));
+    if (q?.last && q.last > 0) setAddedPrice(symbolKey(symbol), q.last);
     setAdded((prev) => new Set(prev).add(`${symbol.code}.${symbol.exchange}`));
   }, [quoteByKey]);
 

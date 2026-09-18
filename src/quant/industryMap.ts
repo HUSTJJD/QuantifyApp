@@ -1,6 +1,6 @@
 /** 行业映射缓存：板块成分 → 代码行业 */
 import { marketData } from '@/data/api';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 
 const cache = new Map<string, string>();
 let loadedAt = 0;
@@ -20,7 +20,7 @@ export async function getIndustryOf(code: string, exchange: string): Promise<str
       try {
         const cons = await marketData.getIndexConstituents(b.symbol);
         for (const c of cons) {
-          const ck = toFullCode(c.symbol);
+          const ck = symbolKey(c.symbol);
           if (!cache.has(ck)) cache.set(ck, b.name);
         }
       } catch {

@@ -9,7 +9,7 @@
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
 import type { Symbol } from '@/data/api';
 import { getSqlite } from './connection';
-import { toFullCode } from '@/domain/symbol';
+import { symbolKey } from '@/domain/symbol';
 
 function num(v: unknown, d = 0): number {
   const n = Number(v);
@@ -717,7 +717,7 @@ export function resetQuantStore(): void {
   QuantStore.resetMemory();
 }
 
-/** Symbol → 表内 symbol_key（exchange.code） */
+/** Symbol → 表内 symbol_key（CODE.EXCHANGE，domain.symbolKey） */
 export function simSymbolKey(s: Symbol): string {
-  return toFullCode(s);
+  return symbolKey(s);
 }

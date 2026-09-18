@@ -6,7 +6,7 @@
  * 顶部展示策略运行概况与最近的自动交易动态；异动提醒保留（含底部角标）。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getProfiles, upsertProfile, deleteProfile } from '@/quant/profileStore';
@@ -22,7 +22,7 @@ import {
 import { STRATEGY_TEMPLATES } from '@/quant/core/templates';
 import { recentStrategyEvents, strategyAccountRepo } from '@/quant/runtime';
 import { useAlertCenter } from '@/features/watchlist/alertCenter';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import { spacing, fontSize, radius, fontWeight, layout } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { Card, Section, Tag, Toggle, EmptyState, Icon } from '@/components';
@@ -166,7 +166,12 @@ export function StrategiesScreen({
   return (
     <ScrollView
       style={[styles.container, { paddingTop: insets.top }]}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: (insets.bottom || 0) + Platform.select({ ios: 56, android: 60, default: 56 }) + spacing.md },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      alwaysBounceVertical
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />
       }
@@ -335,7 +340,7 @@ export function StrategiesScreen({
               <TouchableOpacity
                 key={`${ev.ruleId}-${ev.time}-${i}`}
                 style={[styles.eventRow, i > 0 && styles.hairlineTop]}
-                onPress={() => onOpenStock?.(toFullCode(ev.symbol))}
+                onPress={() => onOpenStock?.(symbolKey(ev.symbol))}
                 activeOpacity={0.7}
               >
                 <View style={[styles.eventBadge, { backgroundColor: ev.value >= 0 ? colors.up : colors.down }]}>

@@ -16,6 +16,7 @@ import { database } from './index';
 import { MarketMetaStore } from './MarketMetaStore';
 import { aggregateByPeriod } from '@/quant/aggregate';
 import { adjustCandles } from '@/quant/adjustment';
+import { symbolKey } from '@/domain/symbol';
 import type { AdjustmentFactorInput } from '@/quant/adjustment';
 import type { Candle, KlinePeriod, Symbol } from '@/data/api';
 
@@ -49,7 +50,7 @@ export async function getCandlesLocal(
   if (adjust === 'none') return base;
 
   const store = new MarketMetaStore();
-  const sk = `${symbol.exchange}.${symbol.code}`;
+  const sk = symbolKey(symbol);
   const factors = await store.getFactors(sk);
   if (factors.length === 0) return base;
 
@@ -59,7 +60,7 @@ export async function getCandlesLocal(
 /** 读本地复权因子（无则返回空数组） */
 export async function getAdjustFactorsLocal(symbol: Symbol): Promise<AdjustmentFactorInput[]> {
   const store = new MarketMetaStore();
-  const sk = `${symbol.exchange}.${symbol.code}`;
+  const sk = symbolKey(symbol);
   const factors = await store.getFactors(sk);
   return toFactorInputs(symbol, factors);
 }

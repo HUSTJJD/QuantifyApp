@@ -63,7 +63,7 @@ import { buildNewsFeed, NormalizedNews } from '@/features/stock/news';
 import { NewsItem, AnnouncementItem } from '@/data/api/types';
 import { getWatchlist, addToWatchlist, removeFromWatchlist } from '@/data/repositories/WatchlistRepository';
 import { setAddedPrice } from '@/features/watchlist/addedPriceCache';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import { openThsDetail } from '@/utils/thsDeepLink';
 
 /** 周期 tab：分时 + 日/周/月 */
@@ -251,7 +251,7 @@ export function StockDetailScreen({
     } else {
       await addToWatchlist(symbol);
       const last = q?.last ?? 0;
-      if (last > 0) setAddedPrice(toFullCode(symbol), last);
+      if (last > 0) setAddedPrice(symbolKey(symbol), last);
       setWatched(true);
     }
   }, [watched, symbol, q?.last]);

@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { marketData } from '@/data/api';
 import { useQuotes } from '@/hooks/useMarketData';
-import { toFullCode, displaySymbol } from '@/domain';
+import { symbolKey, displaySymbol } from '@/domain';
 import type { Symbol } from '@/data/api';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, radius, fontWeight } from '@/theme';
@@ -145,7 +145,7 @@ export function WatchlistScreen({
         const pct = item.prevClose ? (chg / item.prevClose) * 100 : 0;
         const up = chg >= 0;
         return (
-          <TouchableOpacity key={toFullCode(item.symbol)} style={styles.row} onPress={() => onOpen(item.symbol)}>
+          <TouchableOpacity key={symbolKey(item.symbol)} style={styles.row} onPress={() => onOpen(item.symbol)}>
             <View style={styles.nameCol}>
               <Text style={styles.name}>{displaySymbol(item.symbol, item.symbol.name)}</Text>
             </View>

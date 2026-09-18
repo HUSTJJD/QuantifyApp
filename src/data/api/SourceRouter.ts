@@ -34,6 +34,7 @@ import type {
 import { SourceHealth } from './SourceHealth';
 import { getApiConfig } from './config';
 import { InflightCoalescer, stableStringify } from './coalesce';
+import { codecCoversAny, extractCodecSymbols } from './codec';
 
 export type SourceFactory = (id: string) => MarketDataSource;
 
@@ -89,12 +90,12 @@ function formatSymbolTag(args: unknown[]): string {
     if (!v || typeof v !== 'object') return null;
     const o = v as { code?: unknown; exchange?: unknown; symbol?: unknown };
     if (typeof o.code === 'string' && o.code) {
-      return typeof o.exchange === 'string' && o.exchange ? `${o.exchange}.${o.code}` : o.code;
+      return typeof o.exchange === 'string' && o.exchange ? `${o.code}.${o.exchange}` : o.code;
     }
     if (o.symbol && typeof o.symbol === 'object') {
       const s = o.symbol as { code?: unknown; exchange?: unknown };
       if (typeof s.code === 'string' && s.code) {
-        return typeof s.exchange === 'string' && s.exchange ? `${s.exchange}.${s.code}` : s.code;
+        return typeof s.exchange === 'string' && s.exchange ? `${s.code}.${s.exchange}` : s.code;
       }
     }
     return null;
@@ -204,6 +205,14 @@ export class SourceRouter {
       /* supports 异常视为可试，不阻断 */
     }
 
+    // codec 标的级裁剪：入参含 symbol 且本源 codec 一个也覆盖不到时跳过
+    if (src.codec) {
+      const symbols = extractCodecSymbols(method, args);
+      if (symbols.length > 0 && !codecCoversAny(src.codec, symbols)) {
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -297,7 +306,8 @@ export class SourceRouter {
         method === 'getQuotes' ||
         method === 'getIndexKline' ||
         method === 'getKline' ||
-        method === 'getValuations'
+        method === 'getValuations' ||
+        method === 'getAdjustmentFactors'
       ) {
         logger.warn('SourceRouter', `${method} 无可用数据源，返回空`, {
           symbol: formatSymbolTag(a) || 'n/a',

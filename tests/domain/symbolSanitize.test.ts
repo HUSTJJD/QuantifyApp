@@ -2,22 +2,24 @@
  * domain/symbol 清洗：脏 code 前缀纠偏。
  */
 import {
-  parseSymbol,
+  parseSymbolKey,
   sanitizeSymbol,
   normalizeSymbolCode,
-  toThsCode,
   isFundSymbol,
   isOptionCode,
   isBondCode,
   isListedFundCode,
   isNonKlineSymbol,
 } from '@/domain/symbol';
+import { toThsCode } from '@/data/api/sources/codecs/fuyaoCodec';
 
 describe('normalizeSymbolCode', () => {
   it('去掉 sh/hk 前缀', () => {
     expect(normalizeSymbolCode('sh603986')).toBe('603986');
     expect(normalizeSymbolCode('HK03986')).toBe('03986');
-    expect(normalizeSymbolCode('sh.600519')).toBe('600519');
+    // 前缀+点 / 反序键：统一归一为 CODE.EXCHANGE
+    expect(normalizeSymbolCode('sh.600519')).toBe('600519.SH');
+    expect(normalizeSymbolCode('SH.600519')).toBe('600519.SH');
   });
 
   it('后缀大写化', () => {
@@ -69,14 +71,14 @@ describe('sanitizeSymbol', () => {
   });
 });
 
-describe('parseSymbol', () => {
+describe('parseSymbolKey', () => {
   it('解析带前缀的完整串', () => {
-    expect(parseSymbol('sh603986')).toEqual({ code: '603986', exchange: 'SH' });
-    expect(parseSymbol('600519.SH')).toEqual({ code: '600519', exchange: 'SH' });
+    expect(parseSymbolKey('sh603986')).toEqual({ code: '603986', exchange: 'SH' });
+    expect(parseSymbolKey('600519.SH')).toEqual({ code: '600519', exchange: 'SH' });
   });
 });
 
-describe('toThsCode', () => {
+describe('toThsCode（fuyao codec）', () => {
   it('清洗后能拼出合法 thscode', () => {
     expect(toThsCode(sanitizeSymbol({ code: 'sh603986', exchange: 'SH' }))).toBe('603986.SH');
   });

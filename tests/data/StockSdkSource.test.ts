@@ -846,16 +846,37 @@ describe('SDK 专属扩展能力', () => {
   });
   it('资金流：个股 / 大盘 / 排行 / 板块排行', async () => {
     mockSdk.fundFlow.individual.mockResolvedValue([{ date: '2024-01-02', mainNetInflow: 100 }]);
-    mockSdk.fundFlow.market.mockResolvedValue({ mainNetInflow: 200 });
+    mockSdk.fundFlow.market.mockResolvedValue([
+      {
+        date: '2026-09-18',
+        shClose: 3911.87,
+        shChangePercent: 0.94,
+        szClose: 13640.87,
+        szChangePercent: 1.72,
+        mainNetInflow: 39227789312,
+        mainNetInflowPercent: 1.89,
+        superLargeNetInflow: 34144526336,
+        largeNetInflow: 5083262976,
+        mediumNetInflow: -24175783936,
+        smallNetInflow: -15051997184,
+      },
+    ]);
     mockSdk.fundFlow.rank.mockResolvedValue([{ code: '600519' }]);
     mockSdk.fundFlow.sectorRank.mockResolvedValue([{ name: '银行' }]);
     const s = new StockSdkSource();
     await s.getStockFundFlow(CN('600519'));
-    await s.getMarketFundFlow();
+    const market = await s.getMarketFundFlow();
     await s.getFundFlowRank({ indicator: '3day' });
     await s.getSectorFundFlowRank();
     expect(mockSdk.fundFlow.individual).toHaveBeenCalledWith('600519', { period: 'daily' });
     expect(mockSdk.fundFlow.market).toHaveBeenCalled();
+    expect(market).toHaveLength(1);
+    expect(market[0]).toMatchObject({
+      date: '2026-09-18',
+      mainNetInflow: 39227789312,
+      shClose: 3911.87,
+      szClose: 13640.87,
+    });
     expect(mockSdk.fundFlow.rank).toHaveBeenCalledWith({ indicator: '3day' });
     expect(mockSdk.fundFlow.sectorRank).toHaveBeenCalledWith({ indicator: 'today', sectorType: undefined });
   });

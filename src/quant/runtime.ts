@@ -11,7 +11,7 @@ import { getGroups } from '@/data/repositories/WatchlistRepository';
 import { quantStore } from '@/data/db/QuantStore';
 import { userStore } from '@/data/db/UserStore';
 import { createAccountRepo, type AccountRepo, type SimAccount } from '@/simulation';
-import { toFullCode } from '@/domain';
+import { symbolKey, parseSymbolKey } from '@/domain';
 import type { AlertEvent, TradeSignal } from '@/domain';
 import {
   checkExitRules,
@@ -98,7 +98,7 @@ async function resolveScanPool(): Promise<Symbol[]> {
   for (const h of hits) {
     if (!h.code || !h.exchange) continue;
     const s: Symbol = { code: h.code, exchange: h.exchange as Exchange, name: h.name || undefined };
-    const k = toFullCode(s);
+    const k = symbolKey(s);
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(s);
@@ -112,7 +112,7 @@ async function resolveWatchlistPool(): Promise<Symbol[]> {
   const out: Symbol[] = [];
   for (const g of groups) {
     for (const s of g.symbols ?? []) {
-      const k = toFullCode(s);
+      const k = symbolKey(s);
       if (seen.has(k)) continue;
       seen.add(k);
       out.push(s);
@@ -131,7 +131,7 @@ export async function resolvePool(profile: StrategyProfile): Promise<Symbol[]> {
 }
 
 async function fetchCandles(profile: StrategyProfile, symbol: Symbol): Promise<Candle[]> {
-  const key = `${profile.trade.period}:${toFullCode(symbol)}`;
+  const key = `${profile.trade.period}:${symbolKey(symbol)}`;
   const hit = klineCache.get(key);
   if (hit && Date.now() - hit.ts < KLINE_TTL) return hit.candles;
   try {
@@ -147,17 +147,14 @@ function mapQuote(syms: string[], feedQuotes?: Quote[] | null): Map<string, Quot
   const quoteByKey = new Map<string, Quote>();
   if (syms.length === 0) return quoteByKey;
   const feedByKey = new Map<string, Quote>();
-  for (const q of feedQuotes ?? []) feedByKey.set(toFullCode(q.symbol), q);
+  for (const q of feedQuotes ?? []) feedByKey.set(symbolKey(q.symbol), q);
   const symObjs = syms
-    .map((k) => {
-      const [exchange, code] = k.split('.');
-      return { exchange: exchange as Symbol['exchange'], code };
-    })
+    .map((k) => parseSymbolKey(k))
     .filter((s) => s.code);
   const needFetch: Symbol[] = [];
   for (const s of symObjs) {
-    const q = feedByKey.get(toFullCode(s));
-    if (q) quoteByKey.set(toFullCode(s), q);
+    const q = feedByKey.get(symbolKey(s));
+    if (q) quoteByKey.set(symbolKey(s), q);
     else needFetch.push(s);
   }
   return quoteByKey;
@@ -167,12 +164,12 @@ function mapQuote(syms: string[], feedQuotes?: Quote[] | null): Map<string, Quot
 async function recomputeSignals(profiles: StrategyProfile[], symbols: Symbol[], feedQuotes?: Quote[] | null): Promise<TradeSignal[]> {
   const enabled = profiles.filter((p) => p.enabled);
   if (enabled.length === 0) return [];
-  const quoteByKey = mapQuote(symbols.map((s) => toFullCode(s)), feedQuotes);
-  const missing = symbols.filter((s) => !quoteByKey.get(toFullCode(s)));
+  const quoteByKey = mapQuote(symbols.map((s) => symbolKey(s)), feedQuotes);
+  const missing = symbols.filter((s) => !quoteByKey.get(symbolKey(s)));
   if (missing.length > 0) {
     try {
       const fetched = await marketData.getQuotes(missing);
-      for (const q of fetched) quoteByKey.set(toFullCode(q.symbol), q);
+      for (const q of fetched) quoteByKey.set(symbolKey(q.symbol), q);
     } catch {
       // ignore
     }
@@ -181,7 +178,7 @@ async function recomputeSignals(profiles: StrategyProfile[], symbols: Symbol[], 
   const now = Date.now();
   const newSignals: TradeSignal[] = [];
   for (const sym of symbols) {
-    const k = toFullCode(sym);
+    const k = symbolKey(sym);
     const quote = quoteByKey.get(k);
     if (!quote || quote.last <= 0) continue;
     const state = signalState.get(k);
@@ -210,7 +207,7 @@ async function recomputeSignals(profiles: StrategyProfile[], symbols: Symbol[], 
 
   if (newSignals.length > 0 && signalNotifier) {
     const holds = await userStore.getHoldings().catch(() => []);
-    const heldQtyByKey = new Map(holds.map((h) => [toFullCode(h.symbol), h.shares]));
+    const heldQtyByKey = new Map(holds.map((h) => [symbolKey(h.symbol), h.shares]));
     const muted = await getMutedSignalStrategies().catch(() => new Set<string>());
     const alertEvents = newSignals
       .map((s) => signalToAlertEvent(s, 1, { heldQtyByKey }))
@@ -234,21 +231,20 @@ async function runAutoTrade(profile: StrategyProfile, feedQuotes?: Quote[] | nul
   const account = await accRepo.get();
   if (!account.initialized) return;
 
-  const held = new Set(account.positions.map((p) => toFullCode(p.symbol)));
+  const held = new Set(account.positions.map((p) => symbolKey(p.symbol)));
   const pool = await resolvePool(profile);
-  const quoteSyms = Array.from(new Set([...pool.map((s) => toFullCode(s)), ...held]));
+  const quoteSyms = Array.from(new Set([...pool.map((s) => symbolKey(s)), ...held]));
   const quoteByKey = mapQuote(quoteSyms, feedQuotes);
 
   const needFetch: Symbol[] = [];
   for (const k of quoteSyms) {
     if (quoteByKey.has(k)) continue;
-    const [exchange, code] = k.split('.');
-    if (code) needFetch.push({ code, exchange: exchange as Symbol['exchange'] });
+    needFetch.push(parseSymbolKey(k));
   }
   if (needFetch.length > 0) {
     try {
       const fetched = await marketData.getQuotes(needFetch);
-      for (const q of fetched) quoteByKey.set(toFullCode(q.symbol), q);
+      for (const q of fetched) quoteByKey.set(symbolKey(q.symbol), q);
     } catch {
       // ignore
     }
@@ -256,7 +252,7 @@ async function runAutoTrade(profile: StrategyProfile, feedQuotes?: Quote[] | nul
 
   for (const pos of account.positions) {
     if (pos.shares <= 0 || pos.available <= 0) continue;
-    const symKey = toFullCode(pos.symbol);
+    const symKey = symbolKey(pos.symbol);
     const quote = quoteByKey.get(symKey);
     if (!quote || quote.last <= 0) continue;
     const key = closeKey(profile.id, symKey);
@@ -295,12 +291,12 @@ async function runAutoTrade(profile: StrategyProfile, feedQuotes?: Quote[] | nul
   }
 
   const freshAcc = await accRepo.get();
-  const freshHeld = new Set(freshAcc.positions.map((p) => toFullCode(p.symbol)));
+  const freshHeld = new Set(freshAcc.positions.map((p) => symbolKey(p.symbol)));
   if (freshHeld.size >= profile.trade.maxPositions) return;
 
   for (const symbol of pool) {
     if (freshHeld.size >= profile.trade.maxPositions) break;
-    const symKey = toFullCode(symbol);
+    const symKey = symbolKey(symbol);
     if (freshHeld.has(symKey)) continue;
     const quote = quoteByKey.get(symKey);
     if (!passesSelection(profile.selection, quote ?? null)) continue;
@@ -338,7 +334,7 @@ async function tick(feedQuotes?: Quote[] | null): Promise<void> {
     const poolSyms: Symbol[] = [];
     const seen = new Set<string>();
     for (const s of await resolveWatchlistPool()) {
-      const k = toFullCode(s);
+      const k = symbolKey(s);
       if (!seen.has(k)) {
         seen.add(k);
         poolSyms.push(s);
@@ -346,7 +342,7 @@ async function tick(feedQuotes?: Quote[] | null): Promise<void> {
     }
     for (const p of actives) {
       for (const s of await resolvePool(p)) {
-        const k = toFullCode(s);
+        const k = symbolKey(s);
         if (!seen.has(k)) {
           seen.add(k);
           poolSyms.push(s);
@@ -368,7 +364,7 @@ async function tick(feedQuotes?: Quote[] | null): Promise<void> {
       const toSub: Symbol[] = [];
       for (const p of actives) {
         for (const s of await resolvePool(p)) {
-          const k = toFullCode(s);
+          const k = symbolKey(s);
           if (!subscribedPool.has(k)) {
             subscribedPool.add(k);
             toSub.push(s);

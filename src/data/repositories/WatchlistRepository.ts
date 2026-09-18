@@ -15,7 +15,7 @@
  * 异步持久化部分只做"读→纯函数变更→写回"。
  */
 import { userStore } from '@/data/db/UserStore';
-import { toFullCode, sanitizeSymbol } from '@/domain';
+import { symbolKey, sanitizeSymbol } from '@/domain';
 import type { IndexTag, Symbol } from '@/data/api';
 import { resolveDynamicGroups } from './dynamicGroups';
 
@@ -82,10 +82,8 @@ export async function setWatchlist(list: Symbol[]): Promise<void> {
 
 /* ----------------------------- 分组管理 ----------------------------- */
 
-/** 标的身份键（与 simulation/calc 的 symbolKey 保持一致：code.exchange） */
-export function symbolKey(symbol: Symbol): string {
-  return `${symbol.code}.${symbol.exchange}`;
-}
+/** 标的身份键：统一走 domain.symbolKey（CODE.EXCHANGE） */
+export { symbolKey } from '@/domain/symbol';
 
 /** 默认分组（首次启动给出"我的自选"兜底） */
 export const DEFAULT_GROUPS: WatchlistGroup[] = [
@@ -257,7 +255,7 @@ async function buildIndexNameMap(): Promise<Map<string, string>> {
         const list = await marketData.listIndices(tag);
         for (const it of list) {
           if (!it.name) continue;
-          const full = toFullCode(it.symbol);
+          const full = symbolKey(it.symbol);
           if (!map.has(full)) map.set(full, it.name);
         }
       } catch {
@@ -272,7 +270,7 @@ async function buildIndexNameMap(): Promise<Map<string, string>> {
 function fillMissingNames(list: Symbol[], map: Map<string, string>): Symbol[] {
   const next = list.map((s) => {
     if (s.name) return s;
-    const name = map.get(toFullCode(s));
+    const name = map.get(symbolKey(s));
     return name ? { ...s, name } : s;
   });
   return next.every((s, i) => s === list[i]) ? list : next;
@@ -308,7 +306,7 @@ export async function loadWatchlistWithBackfill(): Promise<{
     ...new Map(
       [...flat, ...groups.flatMap((g) => g.symbols)]
         .filter((s) => !s.name && !isIndexTagLike(s))
-        .map((s) => [toFullCode(s), s] as const),
+        .map((s) => [symbolKey(s), s] as const),
     ).values(),
   ];
   if (missingStocks.length > 0) {
@@ -318,7 +316,7 @@ export async function loadWatchlistWithBackfill(): Promise<{
         // 多关键词：纯 code、code.EX、hk/sz/sh 前缀（港股 03986 搜索命中率更高）
         const keywords = [
           s.code,
-          toFullCode(s),
+          symbolKey(s),
           s.exchange === 'HK' ? `hk${s.code}` : `${s.exchange.toLowerCase()}${s.code}`,
         ];
         for (const kw of keywords) {
@@ -329,7 +327,7 @@ export async function loadWatchlistWithBackfill(): Promise<{
               hits.find((h) => h.symbol.code === s.code) ??
               hits.find((h) => h.name && h.symbol.exchange === s.exchange);
             if (hit?.name) {
-              map.set(toFullCode(s), hit.name);
+              map.set(symbolKey(s), hit.name);
               break;
             }
           } catch {

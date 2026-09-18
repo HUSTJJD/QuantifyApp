@@ -43,6 +43,7 @@ import { StockSDK, type RequestClientOptions } from 'stock-sdk';
 import { DataSourceError } from '../MarketDataSource';
 import type { DataSourceMethod, MethodArgs } from '../MarketDataSource';
 import { BaseMarketDataSource } from './BaseMarketDataSource';
+import type { CapabilitySpec } from '../capability';
 import type {
   AdjustmentFactor,
   AnomalyStock,
@@ -155,13 +156,15 @@ import type {
 import { register } from '../DataSourceRegistry';
 import { cleanCandles } from '../candleValidity';
 import { isIndexSymbol } from '@/domain/symbol';
+import type { SymbolCodec } from '../codec';
+import {
+  stockSdkCodec,
+  toSdkCode,
+  exchangeOf,
+  marketNamespace,
+} from './codecs/stockSdkCodec';
 
 const SOURCE_ID = 'stock-sdk';
-
-/** 本 App 的 Symbol 转成 stock-sdk 裸代码（如 600519 / 00700） */
-function toSdkCode(symbol: Symbol): string {
-  return symbol.code;
-}
 
 /** 本源不支持的能力统一抛错（code 3004），便于上层回退到主源 */
 function unsupported(method: string): never {
@@ -179,24 +182,6 @@ function numOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-/** 股票代码 -> Exchange（用于构造统一 Symbol） */
-function exchangeOf(market: string, code: string): Symbol['exchange'] {
-  if (market === 'HK') return 'HK';
-  if (market === 'US') return 'US';
-  // 已带 sh/sz/hk 前缀
-  const c = String(code ?? '').toLowerCase();
-  if (c.startsWith('hk')) return 'HK';
-  if (c.startsWith('us')) return 'US';
-  if (c.startsWith('sh')) return 'SH';
-  if (c.startsWith('sz')) return 'SZ';
-  if (c.startsWith('bj')) return 'BJ';
-  // A 股按代码首位推断
-  if (code.startsWith('6')) return 'SH';
-  if (code.startsWith('0') || code.startsWith('3')) return 'SZ';
-  if (code.startsWith('8') || code.startsWith('4') || code.startsWith('92')) return 'BJ';
-  return 'SH';
 }
 
 /** 期权 T 型报价腿映射 */
@@ -242,6 +227,8 @@ function mapFuturesKline(raw: any[]): FuturesKlineBar[] {
 export class StockSdkSource extends BaseMarketDataSource {
   readonly id = SOURCE_ID;
   readonly label = 'StockSDK';
+  /** 裸代码 codec：出站 toSdkCode / 入站 exchangeOf 唯一转换入口 */
+  readonly codec: SymbolCodec = stockSdkCodec;
 
   /**
    * stock-sdk 覆盖的能力（A股/港股/美股行情、K线、盘口、基金净值、涨停池、板块指数、龙虎榜、交易日历等）。
@@ -311,23 +298,33 @@ export class StockSdkSource extends BaseMarketDataSource {
   async dispose(): Promise<void> {}
 
   /**
+   * 参数级能力规格：
+   *  - 个股 K 线/复权因子：公网 cn 端点对北交所 BJ 基本无数据，从 singleSymbolExchanges 排除，
+   *    路由层直接裁剪，避免全市场同步对 ~2k 只 BJ 标的逐只空请求；
+   *  - 批量行情仍包含 BJ（部分代码有快照），由方法体容错；
+   *  - 指数/板块另有 getIndex* 特殊规则（见 supports override）。
+   */
+  protected readonly spec: CapabilitySpec = {
+    klinePeriods: ['day', 'week', 'month', '60m', '30m', '15m', '5m', '1m'],
+    singleSymbolExchanges: ['SH', 'SZ', 'HK', 'US', 'OF', 'TI'],
+    batchExchanges: ['SH', 'SZ', 'BJ', 'HK', 'US', 'OF', 'TI'],
+    indexExchanges: ['SH', 'SZ', 'TI', 'EM'],
+  };
+
+  /**
    * 参数级能力裁剪（兜底源默认支持绝大多数组合，仅对明确不支持的参数返回 false）：
    *  - getIndexConstituents：仅支持 stock-sdk 板块码（BK + 数字）；
    *  - getIndexQuotes / getIndexKline：同花顺板块指数（.TI）不属于本源覆盖体系；
-   *  - 其余方法默认支持；方法级裁剪已由 capabilities 完成。
-   * 方法体内对同样规则有守卫（抛 3004，双保险）；supports 供路由器先行裁剪，避免无谓尝试。
+   *  - 其余方法走基类 spec 引擎。
    */
   supports<M extends DataSourceMethod>(method: M, args: MethodArgs<M>): boolean {
-    // 动态分发边界 cast：参数类型已按方法签名（MethodArgs）校验，运行时统一按未类型化数组读取
     const a = args as unknown[];
     if (method === 'getIndexConstituents') {
       const s = a[0] as Symbol | undefined;
-      // stock-sdk 板块码格式固定为 BK + 数字（如 BK1027），非此格式 → 不属于本源
       if (!s || !/^BK\d+$/.test(toSdkCode(s))) return false;
     }
     if (method === 'getIndexQuotes') {
       const syms = a[0] as Symbol[] | undefined;
-      // 本源只覆盖东财 BK/EM 板块；真实股指与同花顺 TI 指数交给 hithsa/fuyao
       if (!syms || syms.length === 0) return false;
       const hasBoard = syms.some((s) => s.exchange === 'EM' || /^BK\d+$/i.test(s.code));
       return hasBoard;
@@ -335,17 +332,13 @@ export class StockSdkSource extends BaseMarketDataSource {
     if (method === 'getIndexKline') {
       const p = a[0] as KlineParams | undefined;
       if (!p) return false;
-      // 东财板块（EM/BK）走 board.*，本源覆盖
       if (p.symbol.exchange === 'EM' || /^BK\d+$/i.test(p.symbol.code)) return true;
-      // TI 同花顺板块指数不走本源
       if (p.symbol.exchange === 'TI') return false;
-      // 真实股指（000xxx.SH / 399xxx.SZ）交给 hithsa/fuyao
       if (/^000\d{3}$/.test(p.symbol.code) || /^399\d{3}$/.test(p.symbol.code)) {
         return false;
       }
       return true;
     }
-    // 通用部分委托基类引擎（本源无参数级 spec = 不限制）
     return super.supports(method, args);
   }
 
@@ -536,7 +529,7 @@ export class StockSdkSource extends BaseMarketDataSource {
             : 'cnMinute';
       const raw: any[] = await this.guard(
         this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
-        `分钟K线失败(${params.symbol.exchange}.${code} ${params.period})`,
+        `分钟K线失败(${code}.${params.symbol.exchange} ${params.period})`,
       );
       return cleanCandles(mapMinuteKline(raw ?? []));
     }
@@ -575,7 +568,7 @@ export class StockSdkSource extends BaseMarketDataSource {
     try {
       const raw: any[] = await this.guard(
         this.sdk.kline[ns](code, { ...opts, period: periodMap[params.period] }),
-        `K线失败(${params.symbol.exchange}.${code} ${params.period})`,
+        `K线失败(${code}.${params.symbol.exchange} ${params.period})`,
       );
       return cleanCandles(
         (raw ?? []).map((it: any) => ({
@@ -1458,23 +1451,32 @@ export class StockSdkSource extends BaseMarketDataSource {
 
   // ---------- P2 闭环补录 ----------
 
-  /** 大盘资金流（按日） */
+  /**
+   * 大盘资金流（按日）。
+   * stock-sdk.fundFlow.market → 东财 fflow/daykline；host 已切 push2delay（见 stock-sdk constants）。
+   * delay 节点可能只返回最近交易日，UI 以「最后一点」展示即可。
+   */
   async getMarketFundFlow(): Promise<MarketFundFlowPoint[]> {
-    const raw: any = await this.guard(this.sdk.fundFlow.market(), '大盘资金流失败');
-    const rows: any[] = Array.isArray(raw) ? raw : raw?.item ?? [];
-    return rows.map((it: any) => ({
-      date: String(it?.date ?? ''),
-      shClose: numOrNull(it?.shClose),
-      shChangePct: numOrNull(it?.shChangePercent),
-      szClose: numOrNull(it?.szClose),
-      szChangePct: numOrNull(it?.szChangePercent),
-      mainNetInflow: numOrNull(it?.mainNetInflow),
-      mainNetInflowPct: numOrNull(it?.mainNetInflowPercent),
-      superLargeNetInflow: numOrNull(it?.superLargeNetInflow),
-      largeNetInflow: numOrNull(it?.largeNetInflow),
-      mediumNetInflow: numOrNull(it?.mediumNetInflow),
-      smallNetInflow: numOrNull(it?.smallNetInflow),
-    }));
+    const raw: unknown = await this.guard(this.sdk.fundFlow.market(), '大盘资金流失败');
+    const rows: unknown[] = Array.isArray(raw) ? raw : Array.isArray((raw as { item?: unknown[] })?.item)
+      ? ((raw as { item: unknown[] }).item)
+      : [];
+    return rows.map((it: unknown) => {
+      const r = it as Record<string, unknown>;
+      return {
+        date: String(r?.date ?? ''),
+        shClose: numOrNull(r?.shClose),
+        shChangePct: numOrNull(r?.shChangePercent),
+        szClose: numOrNull(r?.szClose),
+        szChangePct: numOrNull(r?.szChangePercent),
+        mainNetInflow: numOrNull(r?.mainNetInflow),
+        mainNetInflowPct: numOrNull(r?.mainNetInflowPercent),
+        superLargeNetInflow: numOrNull(r?.superLargeNetInflow),
+        largeNetInflow: numOrNull(r?.largeNetInflow),
+        mediumNetInflow: numOrNull(r?.mediumNetInflow),
+        smallNetInflow: numOrNull(r?.smallNetInflow),
+      };
+    });
   }
 
   /** ETF 期权各月合约 */
@@ -1996,7 +1998,8 @@ export class StockSdkSource extends BaseMarketDataSource {
    * ── 口径：range 默认 120（东财）；0 = akshare 全量；profitRatio 0..1
    */
   async getChipDistribution(params: ChipDistributionParams): Promise<ChipDistributionPoint[]> {
-    const ns = params.symbol.exchange === 'HK' ? 'hk' : params.symbol.exchange === 'US' ? 'us' : 'cn';
+    const nsRaw = marketNamespace(params.symbol);
+    const ns = nsRaw === 'fund' ? 'cn' : nsRaw;
     const raw: any[] = await this.guard(
       this.sdk.chips[ns](toSdkCode(params.symbol), {
         range: params.range,

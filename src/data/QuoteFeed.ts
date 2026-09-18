@@ -10,10 +10,13 @@
  *    避免每个监听者再各自发一批行情请求放大 QPS；
  *  - 行情刷新后驱动信号引擎对订阅标的重算买卖信号（见 onQuote 钩子）。
  * 若未来接入 sdk 的真·长连接推送，只需替换内部 fetch 实现，订阅者 API 不变。
+ *
+ * 订阅键：domain.symbolKey = CODE.EXCHANGE（唯一规范，禁止反序）。
  */
 import { AppState } from 'react-native';
 import type { Quote, Symbol } from '@/data/api';
 import { marketData } from '@/data/api';
+import { parseSymbolKey, symbolKey } from '@/domain/symbol';
 import { isTradingNow } from '@/utils/trading';
 import { peekAppPrefs, loadAppPrefsCached } from '@/settings/appPrefs';
 
@@ -34,7 +37,7 @@ class QuoteFeed {
 
   /** 订阅一组标的（增量合并，去重）。 */
   subscribe(symbols: Symbol[]): void {
-    for (const s of symbols) this.subscribed.add(symKey(s));
+    for (const s of symbols) this.subscribed.add(symbolKey(s));
     this.ensureRunning();
   }
 
@@ -52,10 +55,10 @@ class QuoteFeed {
     if (symbols.length === 0) return [];
     if (this.lastSnapshot.length === 0) return null;
     const byKey = new Map<string, Quote>();
-    for (const q of this.lastSnapshot) byKey.set(`${q.symbol.exchange}.${q.symbol.code}`, q);
+    for (const q of this.lastSnapshot) byKey.set(symbolKey(q.symbol), q);
     const out: Quote[] = [];
     for (const s of symbols) {
-      const q = byKey.get(symKey(s));
+      const q = byKey.get(symbolKey(s));
       if (!q) return null;
       out.push(q);
     }
@@ -104,7 +107,7 @@ class QuoteFeed {
     if (this.running) return;
     this.running = true;
     try {
-      const syms = Array.from(this.subscribed).map(parseKey);
+      const syms = Array.from(this.subscribed).map(parseSymbolKey);
       if (syms.length === 0) return;
       const quotes = await marketData.getQuotes(syms);
       this.lastSnapshot = quotes ?? [];
@@ -121,14 +124,6 @@ class QuoteFeed {
     this.subscribers.add(fn);
     return () => this.subscribers.delete(fn);
   }
-}
-
-function symKey(s: Symbol): string {
-  return `${s.exchange}.${s.code}`;
-}
-function parseKey(k: string): Symbol {
-  const [exchange, code] = k.split('.');
-  return { exchange: exchange as Symbol['exchange'], code };
 }
 
 export const quoteFeed = new QuoteFeed();

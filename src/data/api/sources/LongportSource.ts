@@ -8,6 +8,7 @@ import { BaseMarketDataSource } from './BaseMarketDataSource';
 import { DataSourceError } from '../MarketDataSource';
 import { register } from '../DataSourceRegistry';
 import type { DataSourceMethod, MethodArgs } from '../MarketDataSource';
+import type { SymbolCodec } from '../codec';
 import { storage, StorageKeys } from '@/data/db/storage';
 import type { Candle, Instrument, KlinePeriod, KlineParams, Quote, SearchParams, Symbol } from '../types';
 import {
@@ -16,7 +17,8 @@ import {
   hasLongportCreds,
   type LongportCredentials,
 } from './longport/client';
-import { LONGPORT_WATCH, toLongportSymbol } from './longport/instruments';
+import { LONGPORT_WATCH } from './longport/instruments';
+import { longportCodec } from './codecs/longportCodec';
 
 const SOURCE_ID = 'longport';
 
@@ -92,6 +94,8 @@ function isHkUs(s: Symbol): boolean {
 export class LongportSource extends BaseMarketDataSource {
   readonly id = SOURCE_ID;
   readonly label = 'longport(长桥 OpenAPI)';
+  /** 700.HK / AAPL.US 线格式 codec */
+  readonly codec: SymbolCodec = longportCodec;
 
   readonly capabilities: ReadonlySet<DataSourceMethod> = new Set([
     'getQuotes',
@@ -130,11 +134,11 @@ export class LongportSource extends BaseMarketDataSource {
     if (method === 'getQuotes') {
       const raw = a[0];
       const list = Array.isArray(raw) ? (raw as Symbol[]) : raw ? [raw as Symbol] : [];
-      return list.some((s) => isHkUs(s) && toLongportSymbol(s) != null);
+      return list.some((s) => isHkUs(s) && this.codec.covers(s));
     }
     if (method === 'getKline') {
       const p = a[0] as { symbol?: Symbol } | undefined;
-      return !!(p?.symbol && isHkUs(p.symbol) && toLongportSymbol(p.symbol) != null);
+      return !!(p?.symbol && isHkUs(p.symbol) && this.codec.covers(p.symbol));
     }
     return false;
   }
@@ -154,7 +158,7 @@ export class LongportSource extends BaseMarketDataSource {
   async getQuotes(symbols: Symbol[]): Promise<Quote[]> {
     const cred = await this.requireCreds();
     const mapped = symbols
-      .map((s) => ({ s, lp: toLongportSymbol(s) }))
+      .map((s) => ({ s, lp: this.codec.toSource(s) }))
       .filter((x): x is { s: Symbol; lp: string } => !!x.lp && isHkUs(x.s));
     if (mapped.length === 0) return this.unsupported('getQuotes');
     const lpSymbols = mapped.map((x) => x.lp);
@@ -189,7 +193,7 @@ export class LongportSource extends BaseMarketDataSource {
 
   async getKline(params: KlineParams): Promise<Candle[]> {
     const cred = await this.requireCreds();
-    const lp = toLongportSymbol(params.symbol);
+    const lp = this.codec.toSource(params.symbol);
     if (!lp || !isHkUs(params.symbol)) return this.unsupported('getKline');
     const count = params.count && params.count > 0 ? params.count : 200;
     try {

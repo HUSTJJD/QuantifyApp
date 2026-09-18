@@ -10,13 +10,14 @@
  * 只要实现 KlineDatabasePort 即可，业务层零改动。
  */
 import type { Candle, KlinePeriod, Symbol } from '@/data/api';
+import { symbolKey } from '@/domain/symbol';
 
-/** 归一化后的标的键（如 SH.600519），作为表行分区键 */
+/** 归一化后的标的键（CODE.EXCHANGE，如 600519.SH），作为表行分区键 */
 export type SymbolKey = string;
 
 /** 单根 K 线在数据库中的行模型（所有时间统一为毫秒时间戳） */
 export interface KlineRow {
-  /** 分区键：exchange.code，例如 SH.600519 */
+  /** 分区键：CODE.EXCHANGE，例如 600519.SH */
   symbol: SymbolKey;
   /** 周期：day/week/month/1m/... */
   period: KlinePeriod;
@@ -34,10 +35,8 @@ export interface KlineRow {
   updatedAt: number;
 }
 
-/** 把 Symbol 归一化为稳定分区键 */
-export function symbolKey(symbol: Symbol): SymbolKey {
-  return `${symbol.exchange}.${symbol.code}`;
-}
+/** 把 Symbol 归一化为稳定分区键（domain.symbolKey = CODE.EXCHANGE） */
+export { symbolKey };
 
 /** 把 Candle.datetime（number | string）统一为毫秒时间戳 */
 export function toTs(datetime: number | string): number {

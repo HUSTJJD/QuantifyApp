@@ -215,6 +215,22 @@ export class MarketDataClient {
   }
 
   /**
+   * 直通指定数据源实例（供应商专属 API 逃生舱）。
+   *
+   * 约定：
+   *  - 可移植能力（行情/K线/估值…）请继续走 marketData.*，由 SourceRouter 调度与兜底；
+   *  - 仅在需要源独有方法（如 stock-sdk board.* / fuyao 扩展端点）时使用 `marketData.source(id)`；
+   *  - 符号转换必须使用 `src.codec`（App 规范 CODE.EXCHANGE ↔ 源线格式）。
+   */
+  source(id: string): MarketDataSource | undefined {
+    try {
+      return this.factory(id);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * 门面统一入口：读穿缓存（MethodCache）→ SourceRouter。
    * 未登记缓存策略的方法直接透传；probeSource 不走本方法（保持真实请求）。
    */

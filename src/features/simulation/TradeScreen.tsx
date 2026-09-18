@@ -7,7 +7,7 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'reac
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { spacing, fontSize, radius } from '@/theme';
 import { useSimAccount } from '@/hooks/useSimAccount';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import {
   LOT_SIZE,
   round2,
@@ -72,7 +72,7 @@ export function TradeScreen({
     }
     const res: SubmitResult = await (side === 'buy' ? buy : sell)(symbol, price, qty, type, lastPrice);
     if (res.ok) {
-      Alert.alert('委托成功', `${side === 'buy' ? '买入' : '卖出'} ${toFullCode(symbol)} ${qty} 股，已成交`, [
+      Alert.alert('委托成功', `${side === 'buy' ? '买入' : '卖出'} ${symbolKey(symbol)} ${qty} 股，已成交`, [
         { text: '完成', onPress: onDone },
       ]);
     } else {
@@ -83,7 +83,7 @@ export function TradeScreen({
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { borderColor: colors.border }]}>
-        <Text style={[styles.title, { color: colors.text }]}>模拟交易 · {toFullCode(symbol)}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>模拟交易 · {symbolKey(symbol)}</Text>
       </View>
 
       {/* 买卖切换 */}

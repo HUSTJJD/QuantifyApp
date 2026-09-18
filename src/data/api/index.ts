@@ -205,6 +205,14 @@ export function applyUserPreferences(key?: string): Promise<void> {
 }
 export type { MarketDataSource } from './MarketDataSource';
 export { DataSourceError } from './MarketDataSource';
+// 符号 codec：App 规范 CODE.EXCHANGE ↔ 各源线格式
+export type { SymbolCodec } from './codec';
+export { codecCoversAll, codecCoversAny } from './codec';
+export { fuyaoCodec, toThsCode, fromThsCode } from './sources/codecs/fuyaoCodec';
+export { stockSdkCodec, toSdkCode, marketNamespace, exchangeOf } from './sources/codecs/stockSdkCodec';
+export { longportCodec } from './sources/codecs/longportCodec';
+export { dukascopyCodec } from './sources/codecs/dukascopyCodec';
+export { fundApiCodec } from './sources/codecs/fundApiCodec';
 // 参数级能力裁剪（CapabilitySpec 声明式数据表 + 通用决策引擎）
 export type { CapabilitySpec } from './capability';
 export {

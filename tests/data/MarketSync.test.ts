@@ -26,14 +26,14 @@ describe('MarketMetaStore（内存回落引擎）', () => {
     ]);
     expect(await store.countTickers()).toBe(2);
     const list = await store.getTickers();
-    expect(list.map((t) => t.symbol).sort()).toEqual(['SH.600519', 'SZ.000001']);
+    expect(list.map((t) => t.symbol).sort()).toEqual(['000001.SZ', '600519.SH']);
   });
 
   it('sync_state 写入与读取', async () => {
     const store = new MarketMetaStore();
-    await store.setSyncState('SH.600519', 'day', 12345);
-    expect(await store.getSyncState('SH.600519', 'day')).toBe(12345);
-    expect(await store.getSyncState('SH.600519', 'week')).toBe(0);
+    await store.setSyncState('600519.SH', 'day', 12345);
+    expect(await store.getSyncState('600519.SH', 'day')).toBe(12345);
+    expect(await store.getSyncState('600519.SH', 'week')).toBe(0);
   });
 });
 
@@ -90,7 +90,7 @@ describe('syncKlineIncremental 增量同步', () => {
       { symbol: SYM_A, name: '贵州茅台', assetType: 'a-share', market: 'A' as const },
     ]);
     const store = new MarketMetaStore();
-    await store.setSyncState('SH.600519', 'day', Date.now()); // 刚同步过
+    await store.setSyncState('600519.SH', 'day', Date.now()); // 刚同步过
     const getKline = jest.spyOn(marketData, 'getKline').mockResolvedValue([candle(1, 10)]);
     const res = await syncKlineIncremental('day', 2);
     expect(res.skipped).toBe(1);

@@ -8,7 +8,7 @@ import { marketData } from '@/data/api';
 import type { IndexInfo, Quote, IndexTag } from '@/data/api';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useAppTheme } from '@/theme/ThemeProvider';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 import { spacing, fontSize, radius, layout } from '@/theme';
 import { squarify, type TreemapItem } from '@/utils/treemap';
 import { getAppPrefs, setAppPrefs, type AppPrefs } from '@/settings/appPrefs';
@@ -124,11 +124,11 @@ export function SectorBoard({ tag, onPress }: SectorBoardProps): React.JSX.Eleme
 
   const items = useMemo<SectorItem[]>(() => {
     const quoteMap = new Map<string, Quote>();
-    (quotes ?? []).forEach((q) => quoteMap.set(toFullCode(q.symbol), q));
+    (quotes ?? []).forEach((q) => quoteMap.set(symbolKey(q.symbol), q));
     const seen = new Set<string>();
     return indices
       .map((idx) => {
-        const q = quoteMap.get(toFullCode(idx.symbol));
+        const q = quoteMap.get(symbolKey(idx.symbol));
         const pct = pctOf(q);
         const hasQuote = !!q && q.last > 0;
         const amount = hasQuote ? (q.amount > 0 ? q.amount : q.volume > 0 ? q.volume : 1) : 1;
@@ -137,7 +137,7 @@ export function SectorBoard({ tag, onPress }: SectorBoardProps): React.JSX.Eleme
       })
       .filter((it) => it.hasQuote)
       .filter((it) => {
-        const k = toFullCode(it.index.symbol);
+        const k = symbolKey(it.index.symbol);
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
@@ -147,14 +147,14 @@ export function SectorBoard({ tag, onPress }: SectorBoardProps): React.JSX.Eleme
 
   const itemByKey = useMemo(() => {
     const m = new Map<string, SectorItem>();
-    items.forEach((it) => m.set(toFullCode(it.index.symbol), it));
+    items.forEach((it) => m.set(symbolKey(it.index.symbol), it));
     return m;
   }, [items]);
 
   const rects = useMemo(() => {
     if (size.w <= 0 || items.length === 0) return [];
     const tmItems: TreemapItem[] = items.map((it) => ({
-      key: toFullCode(it.index.symbol),
+      key: symbolKey(it.index.symbol),
       weight: it.amount,
     }));
     return squarify(tmItems, size.w, size.h);

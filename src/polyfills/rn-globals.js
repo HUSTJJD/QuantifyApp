@@ -47,43 +47,101 @@ if (typeof globalThis.DOMException === 'undefined') {
   globalThis.DOMException = DOMExceptionPolyfill;
 }
 
-// TextEncoder / TextDecoder：RN JSCore 普遍缺失，按 UTF-8 实现最小可用版本。
+// TextEncoder / TextDecoder：
+//  - Hermes/JSC 可能没有 TextDecoder → 补 UTF-8 最小实现；
+//  - 若已有 TextDecoder 但不支持 gbk（腾讯行情），包装 constructor，在 gbk/gb2312/gb18030
+//    时走字节级回退（ASCII/数字字段可解析，中文名可能乱码），避免 getQuotes 整批失败。
+function utf8Decode(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input ?? 0);
+  let result = '';
+  let i = 0;
+  const len = bytes.length;
+  while (i < len) {
+    const byte = bytes[i++];
+    if (byte <= 0x7f) {
+      result += String.fromCharCode(byte);
+    } else if (byte >= 0xc0 && byte <= 0xdf) {
+      const b2 = bytes[i++];
+      result += String.fromCharCode(((byte & 0x1f) << 6) | (b2 & 0x3f));
+    } else if (byte >= 0xe0 && byte <= 0xef) {
+      const b2 = bytes[i++];
+      const b3 = bytes[i++];
+      result += String.fromCharCode(((byte & 0x0f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
+    } else if (byte >= 0xf0 && byte <= 0xf7) {
+      const b2 = bytes[i++];
+      const b3 = bytes[i++];
+      const b4 = bytes[i++];
+      let cp = ((byte & 0x07) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f);
+      cp -= 0x10000;
+      result += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+    } else {
+      // 非法续字节：跳过
+    }
+  }
+  return result;
+}
+
+function gbkLikeDecode(input) {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input ?? 0);
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b < 0x80) {
+      out += String.fromCharCode(b);
+    } else if (b >= 0xc0 && b <= 0xdf && i + 1 < bytes.length) {
+      out += String.fromCharCode(((b & 0x1f) << 6) | (bytes[++i] & 0x3f));
+    } else if (b >= 0xe0 && b <= 0xef && i + 2 < bytes.length) {
+      out += String.fromCharCode(
+        ((b & 0x0f) << 12) | ((bytes[++i] & 0x3f) << 6) | (bytes[++i] & 0x3f),
+      );
+    } else {
+      out += '�';
+    }
+  }
+  return out;
+}
+
+const GBK_ENCODINGS = new Set(['gbk', 'gb2312', 'gb18030', 'chinese', 'csgb2312']);
+
 if (typeof globalThis.TextDecoder === 'undefined') {
   globalThis.TextDecoder = class {
     constructor(encoding = 'utf-8') {
       this.encoding = (encoding || 'utf-8').toLowerCase();
     }
     decode(input) {
-      if (input == null) return '';
-      const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-      let result = '';
-      let i = 0;
-      const len = bytes.length;
-      while (i < len) {
-        const byte = bytes[i++];
-        if (byte <= 0x7f) {
-          result += String.fromCharCode(byte);
-        } else if (byte >= 0xc0 && byte <= 0xdf) {
-          const b2 = bytes[i++];
-          result += String.fromCharCode(((byte & 0x1f) << 6) | (b2 & 0x3f));
-        } else if (byte >= 0xe0 && byte <= 0xef) {
-          const b2 = bytes[i++];
-          const b3 = bytes[i++];
-          result += String.fromCharCode(((byte & 0x0f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
-        } else if (byte >= 0xf0 && byte <= 0xf7) {
-          const b2 = bytes[i++];
-          const b3 = bytes[i++];
-          const b4 = bytes[i++];
-          let cp = ((byte & 0x07) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f);
-          cp -= 0x10000;
-          result += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
-        } else {
-          // 非法续字节：跳过，保持健壮
-        }
-      }
-      return result;
+      if (GBK_ENCODINGS.has(this.encoding)) return gbkLikeDecode(input);
+      return utf8Decode(input);
     }
   };
+} else {
+  const NativeTextDecoder = globalThis.TextDecoder;
+  let nativeSupportsGbk = true;
+  try {
+    // eslint-disable-next-line no-new
+    new NativeTextDecoder('gbk');
+  } catch {
+    nativeSupportsGbk = false;
+  }
+  if (!nativeSupportsGbk) {
+    globalThis.TextDecoder = class extends NativeTextDecoder {
+      constructor(encoding = 'utf-8', options) {
+        const enc = (encoding || 'utf-8').toLowerCase();
+        if (GBK_ENCODINGS.has(enc)) {
+          // 原生不认 gbk：伪装成 utf-8 以免 super 抛错，decode 时走回退
+          super('utf-8', options);
+          this.encoding = enc;
+        } else {
+          super(enc, options);
+        }
+      }
+      decode(input, options) {
+        if (GBK_ENCODINGS.has((this.encoding || '').toLowerCase())) {
+          return gbkLikeDecode(input);
+        }
+        return NativeTextDecoder.prototype.decode.call(this, input, options);
+      }
+    };
+  }
 }
 
 if (typeof globalThis.TextEncoder === 'undefined') {

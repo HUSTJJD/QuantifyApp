@@ -76,7 +76,9 @@ import type {
   Exchange,
   AssetType,
 } from '../types';
-import { toThsCode, fromThsCode, marketOf, parseSymbol, isIndexSymbol } from '@/domain/symbol';
+import { marketOf, isIndexSymbol, parseSymbolKey } from '@/domain/symbol';
+import { toThsCode, fromThsCode, fuyaoCodec } from './codecs/fuyaoCodec';
+import type { SymbolCodec } from '../codec';
 import { cleanCandles } from '../candleValidity';
 import { register } from '../DataSourceRegistry';
 import { getUnifiedApiKey } from '../config';
@@ -158,6 +160,8 @@ function toCandle(d: { date_ms?: number; open_price?: number; high_price?: numbe
 export class FuyaoApiSource extends BaseMarketDataSource {
   readonly id = FUYAO_SOURCE_ID;
   readonly label = FUYAO_SOURCE_NAME;
+  /** thscode codec：出站 toThsCode / 入站 fromThsCode 唯一转换入口 */
+  readonly codec: SymbolCodec = fuyaoCodec;
 
   /** 同花顺官方 SDK 覆盖的全部能力（沪深 A 股为主；参数级限制见 supports）——强类型：DataSourceMethod */
   // 注：不声明 getOrderBook —— 本源实现体是 3004（同花顺官方 SDK 当前不给 A 股五档），
@@ -561,7 +565,7 @@ export class FuyaoApiSource extends BaseMarketDataSource {
   // latestReport 所需的指标（eps / 营收 / 净利 / 总资产 / 净资产 / 经营现金流）
   // 分散在三大报表中，这里按报告期(periodEndMs)合并成统一的 FinancialReport[]。
   async getFinancials(code: string): Promise<FinancialReport[]> {
-    const symbol = parseSymbol(code);
+    const symbol = parseSymbolKey(code);
     const params: HistoricalFinancialParams = { symbol, period: 'annual', limit: 4 };
     const [income, balance, cash] = await Promise.all([
       this.getIncomeStatements(params).catch(() => [] as IncomeStatement[]),

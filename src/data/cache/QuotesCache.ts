@@ -5,6 +5,7 @@
  * 旧版 24h 会导致过期价（如港股价停在昨收）长期霸屏。
  */
 import { domainCache } from '@/data/db/DomainCache';
+import { symbolKey } from '@/domain/symbol';
 import type { Quote, Symbol } from '@/data/api';
 
 /** 行情缓存最大有效年龄：60s */
@@ -21,7 +22,7 @@ export const QuotesCache = {
     const map = await domainCache().getQuotes(symbols, Date.now(), maxAgeMs);
     if (map.size === 0) return null;
     const list = symbols
-      .map((s) => map.get(`${s.exchange}.${s.code}`))
+      .map((s) => map.get(symbolKey(s)))
       .filter(isValidQuote);
     return list.length > 0 ? list : null;
   },

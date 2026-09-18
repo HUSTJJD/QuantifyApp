@@ -13,7 +13,6 @@ import type { StrategyProfile } from '@/quant/profile';
 import { strategyAccountRepo } from '@/quant/runtime';
 import type { SimAccount } from '@/simulation';
 import { summarize, symbolKey } from '@/simulation/calc';
-import { toFullCode } from '@/domain';
 import { useQuotes } from '@/hooks/useMarketData';
 import { spacing, fontSize, fontWeight } from '@/theme';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -175,7 +174,7 @@ export function StrategySimScreen({
                 {acc.positions.map((p, i) => (
                   <View key={i} style={[styles.listRow, i > 0 && styles.hairline]}>
                     <View style={styles.rowLeft}>
-                      <Text style={styles.rowName}>{toFullCode(p.symbol)}</Text>
+                      <Text style={styles.rowName}>{symbolKey(p.symbol)}</Text>
                       <Text style={styles.rowSub}>
                         持仓 {p.shares} 股 · 可用 {p.available}
                       </Text>
@@ -197,7 +196,7 @@ export function StrategySimScreen({
                   <View key={i} style={[styles.listRow, i > 0 && styles.hairline]}>
                     <View style={styles.rowLeft}>
                       <Text style={styles.rowName}>
-                        {t.side === 'buy' ? '买入' : '卖出'} {t.quantity}股 {toFullCode(t.symbol)}
+                        {t.side === 'buy' ? '买入' : '卖出'} {t.quantity}股 {symbolKey(t.symbol)}
                       </Text>
                       <Text style={styles.rowSub}>{new Date(t.ts).toLocaleString('zh-CN')}</Text>
                     </View>

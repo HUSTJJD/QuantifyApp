@@ -18,7 +18,7 @@
 import { marketData } from '@/data/api';
 import { database } from '@/data/db';
 import { MarketMetaStore } from '@/data/db/MarketMetaStore';
-import { isIndexSymbol } from '@/domain/symbol';
+import { isIndexSymbol, parseSymbolKey, symbolKey } from '@/domain/symbol';
 import { logger } from '@/utils/logger';
 import type { Candle, Instrument, KlinePeriod, Symbol } from '@/data/api';
 
@@ -85,7 +85,7 @@ async function fetchAllTickers(
     let added = 0;
     for (const it of batch) {
       if (!it?.symbol?.code) continue;
-      const key = `${it.symbol.exchange}.${it.symbol.code}`;
+      const key = symbolKey(it.symbol);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(it);
@@ -108,10 +108,25 @@ function isListedFundSyncCode(code: string): boolean {
   return /^(5\d{5}|(15|16|18)\d{4})$/.test(code);
 }
 
-/** 同步 universe：个股 + 场内 ETF/LOF（排除指数/债券/场外基金脏数据） */
-function isSyncableTicker(symbolKey: string): boolean {
-  const code = symbolKey.split('.')[1] ?? symbolKey;
+/** 同步 universe：个股 + 场内 ETF/LOF（排除指数/债券/场外基金脏数据）；key = CODE.EXCHANGE */
+function isSyncableTicker(symbolKeyStr: string): boolean {
+  const { code } = parseSymbolKey(symbolKeyStr);
   return isEquityCode(code) || isListedFundSyncCode(code);
+}
+
+/**
+ * 当前各源对北交所日 K / 复权因子均无稳定覆盖（fuyao 限 SH/SZ，stock-sdk cn 端点空）。
+ * 同步层直接跳过 BJ，避免 7k 标的循环里对 ~2k 只 BJ 逐只打无谓请求 + 刷屏日志。
+ * 若后续接通 BJ 行情源，把此函数改为 false 或删掉分支即可。
+ */
+function isBjUnsupported(symbol: Symbol): boolean {
+  return symbol.exchange === 'BJ';
+}
+
+/** 「无源覆盖」类错误：记为 skipped，不打完整堆栈 */
+function isNoSourceError(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /no data source supports|无可用数据源|不支持/i.test(m);
 }
 
 /** 标的最早需要的数据时间：若本地已有数据则从本地最新 bar 之后开始补，否则全量 */
@@ -152,8 +167,17 @@ export async function syncKlineIncremental(
 
   for (const t of universe) {
     state.current = t.symbol;
-    const symbol: Symbol = { code: t.symbol.split('.')[1] ?? t.symbol, exchange: (t.exchange as Symbol['exchange']) ?? 'SH' };
+    const symbol: Symbol = parseSymbolKey(t.symbol);
     try {
+      // 北交所：当前无可用 K 线/复权数据源 → 记同步状态后跳过，避免每轮空打
+      if (isBjUnsupported(symbol)) {
+        await store.setSyncState(t.symbol, period, Date.now());
+        state.skipped += 1;
+        state.done += 1;
+        onProgress?.({ ...state });
+        continue;
+      }
+
       // 防抖：最近同步过且间隔未到 -> 跳过
       const lastSync = await store.getSyncState(t.symbol, period);
       if (lastSync > 0 && Date.now() - lastSync < MIN_SYNC_INTERVAL_MS) {
@@ -173,23 +197,15 @@ export async function syncKlineIncremental(
       const candles = await marketData.getKline({
         symbol,
         period,
-        // 本地无任何 K 线 = 首次全量（约 3 年）；已有历史则只补最近增量
         count: latest ? count : FULL_HISTORY_COUNT,
       });
       if (candles && candles.length > 0) {
         await database().saveCandles(symbol, period, candles);
       }
 
-      // 复权因子：仅 A 股个股有分红送转；指数/板块/港股美股无复权因子，跳过。
-      // 10xxxxx/11xxxxx/12xxxxx 等为转债/债券代码，不是个股，一并跳过。
-      const isEquity = /^(60\d{4}|68\d{4}|00\d{4}|30\d{4}|8\d{4}|4\d{4}|92\d{4})$/.test(
-        symbol.code,
-      );
-      if (
-        isEquity &&
-        !isIndexSymbol(symbol) &&
-        (symbol.exchange === 'SH' || symbol.exchange === 'SZ' || symbol.exchange === 'BJ')
-      ) {
+      // 复权因子：仅沪深 A 股个股；BJ/HK/US/指数无稳定因子源，跳过
+      const isEquity = /^(60\d{4}|68\d{4}|00\d{4}|30\d{4})$/.test(symbol.code);
+      if (isEquity && !isIndexSymbol(symbol) && (symbol.exchange === 'SH' || symbol.exchange === 'SZ')) {
         try {
           const factors = await marketData.getAdjustmentFactors(symbol);
           if (factors && factors.length > 0) {
@@ -203,7 +219,9 @@ export async function syncKlineIncremental(
             })));
           }
         } catch (fe) {
-          log.warn?.(`复权因子同步失败 ${t.symbol}`, fe);
+          if (!isNoSourceError(fe) && errors.length < 20) {
+            log.warn?.(`复权因子同步失败 ${t.symbol}`, fe);
+          }
         }
       }
 
@@ -213,8 +231,17 @@ export async function syncKlineIncremental(
       state.failed += 1;
       state.done += 1;
       const msg = e instanceof Error ? e.message : String(e);
-      if (errors.length < 20) errors.push(`${t.symbol}: ${msg}`);
-      log.warn?.(`同步失败 ${t.symbol}`, e);
+      if (isNoSourceError(e)) {
+        // 无源覆盖：记状态，下轮不再重试；不计入 failed 噪音
+        await store.setSyncState(t.symbol, period, Date.now()).catch(() => undefined);
+        state.skipped += 1;
+        state.failed -= 1;
+      } else {
+        if (errors.length < 20) {
+          errors.push(`${t.symbol}: ${msg}`);
+          log.warn?.(`同步失败 ${t.symbol}: ${msg}`);
+        }
+      }
     }
     onProgress?.({ ...state });
   }
@@ -257,10 +284,7 @@ export async function syncValuations(chunk = 80): Promise<number> {
   let n = 0;
   for (let i = 0; i < tickers.length; i += chunk) {
     const batch = tickers.slice(i, i + chunk);
-    const symbols = batch.map((t) => ({
-      code: t.symbol.split('.')[1] ?? t.symbol,
-      exchange: (t.symbol.split('.')[0] as Symbol['exchange']) ?? 'SH',
-    }));
+    const symbols = batch.map((t) => parseSymbolKey(t.symbol));
     try {
       const vals = await marketData.getValuations(symbols);
       n += vals.length;

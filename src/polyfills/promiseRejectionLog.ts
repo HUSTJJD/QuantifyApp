@@ -20,15 +20,21 @@ if (__DEV__) {
         const cause = (e as { cause?: unknown }).cause;
         if (
           typeof e?.message === 'string' &&
-          e.message.includes('Uncaught (in promise') &&
-          cause instanceof Error
+          e.message.includes('Uncaught (in promise')
         ) {
-          console.error(
-            `[UnhandledRejection cause] ${cause.message}\n${cause.stack ?? '(no stack)'}`,
-          );
-        } else if (e instanceof Error) {
-          // 普通致命错误也打一层，便于对齐 LogBox 源
-          // （不替换 LogBox，只补充日志）
+          if (cause instanceof Error) {
+            console.error(
+              `[UnhandledRejection cause] ${cause.message}\n${cause.stack ?? '(no stack)'}`,
+            );
+          } else if (cause !== undefined && cause !== null) {
+            console.error(
+              `[UnhandledRejection cause] ${String(cause)}\n${e.stack ?? '(no stack)'}`,
+            );
+          } else {
+            console.error(
+              `[UnhandledRejection] ${e.message}\n${e.stack ?? '(no stack)'}`,
+            );
+          }
         }
         original(e);
       };

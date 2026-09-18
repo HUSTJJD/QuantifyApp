@@ -18,7 +18,9 @@
 import fundApi from 'fund-api';
 import { BaseMarketDataSource } from './BaseMarketDataSource';
 import type { DataSourceMethod } from '../MarketDataSource';
+import type { SymbolCodec } from '../codec';
 import { register } from '../DataSourceRegistry';
+import { fundApiCodec } from './codecs/fundApiCodec';
 import type {
   Symbol as UnifiedSymbol,
   Quote,
@@ -32,14 +34,14 @@ import type {
 
 const SOURCE_ID = 'fund-api';
 
-/** 本项目 Symbol -> fund-api 库 code（纯数字基金代码，如 000001） */
-function toProviderCode(symbol: UnifiedSymbol): string {
-  return symbol.code;
+/** fund-api 线代码：codec.toSource，不可寻址时回落 symbol.code */
+function wireCode(symbol: UnifiedSymbol): string {
+  return fundApiCodec.toSource(symbol) ?? symbol.code;
 }
 
-/** fund-api 返回的 code（如 000001）-> 本项目统一 Symbol（基金统一归 OF 市场） */
-function fromProviderCode(code: string): UnifiedSymbol {
-  return { code, exchange: 'OF' };
+/** fund-api code → App Symbol（恒 OF） */
+function appSymbol(code: string): UnifiedSymbol {
+  return fundApiCodec.fromSource(code) ?? { code, exchange: 'OF' };
 }
 
 interface FundApiFund {
@@ -63,6 +65,8 @@ const auto = fundApi.funds.auto;
 export class FundApiSource extends BaseMarketDataSource {
   readonly id = SOURCE_ID;
   readonly label = 'fund-api(npm:fund-api)';
+  /** 数字基金代码 codec：恒映射 exchange=OF */
+  readonly codec: SymbolCodec = fundApiCodec;
 
   /** 仅覆盖基金净值快照/档案/历史净值/区间净值/基金搜索；其余继承 Base 抛 3004——强类型：DataSourceMethod */
   readonly capabilities: ReadonlySet<DataSourceMethod> = new Set([
@@ -80,12 +84,12 @@ export class FundApiSource extends BaseMarketDataSource {
 
   /** 基金净值快照：透传 getFund，映射到统一 Quote（以最新净值作为 last） */
   async getFundMarketSnapshot(symbol: UnifiedSymbol): Promise<Quote> {
-    const raw = (await auto.getFund(toProviderCode(symbol))) as FundApiFund;
+    const raw = (await auto.getFund(wireCode(symbol))) as FundApiFund;
     if (!raw || !raw.code) {
       return this.unsupported(`getFundMarketSnapshot(${symbol.code})`);
     }
     return {
-      symbol: fromProviderCode(raw.code),
+      symbol: appSymbol(raw.code),
       last: raw.nav ?? 0,
       prevClose: raw.accNav ?? 0,
       open: 0,
@@ -100,12 +104,12 @@ export class FundApiSource extends BaseMarketDataSource {
 
   /** 基金档案：透传 getFund，映射到统一 FundProfile（库仅含名称/净值，其余字段留 null） */
   async getFundProfile(symbol: UnifiedSymbol, _type: FundType): Promise<FundProfile> {
-    const raw = (await auto.getFund(toProviderCode(symbol))) as FundApiFund;
+    const raw = (await auto.getFund(wireCode(symbol))) as FundApiFund;
     if (!raw || !raw.code) {
       return this.unsupported(`getFundProfile(${symbol.code})`);
     }
     return {
-      symbol: fromProviderCode(raw.code),
+      symbol: appSymbol(raw.code),
       ticker: raw.code,
       fundName: raw.name ?? null,
       estabDateMs: null,
@@ -121,12 +125,12 @@ export class FundApiSource extends BaseMarketDataSource {
     _report?: string,
     _market?: string,
   ): Promise<FundNav[]> {
-    const items = (await auto.getNavHistory(toProviderCode(symbol))) as FundApiNavItem[];
+    const items = (await auto.getNavHistory(wireCode(symbol))) as FundApiNavItem[];
     if (!items || items.length === 0) {
       return this.unsupported(`getFundNav(${symbol.code})`);
     }
     return items.map((it) => ({
-      symbol: fromProviderCode(symbol.code),
+      symbol: appSymbol(symbol.code),
       navDate: it.date,
       unitNav: it.nav ?? null,
       adjNav: it.accNav ?? null,
@@ -135,7 +139,7 @@ export class FundApiSource extends BaseMarketDataSource {
 
   /** 区间历史净值：透传 getNavHistory 后按 [startMs, endMs] 过滤，映射到统一 Candle[] */
   async getFundHistorical(symbol: UnifiedSymbol, startMs: number, endMs: number): Promise<Candle[]> {
-    const items = (await auto.getNavHistory(toProviderCode(symbol))) as FundApiNavItem[];
+    const items = (await auto.getNavHistory(wireCode(symbol))) as FundApiNavItem[];
     if (!items || items.length === 0) {
       return this.unsupported(`getFundHistorical(${symbol.code})`);
     }
@@ -170,7 +174,7 @@ export class FundApiSource extends BaseMarketDataSource {
     const arr = Array.isArray(list) ? list : [];
     const limited = params.limit ? arr.slice(0, params.limit) : arr;
     return limited.map((s) => ({
-      symbol: fromProviderCode(s.code),
+      symbol: appSymbol(s.code),
       name: s.name ?? '',
       market: 'A',
     }));

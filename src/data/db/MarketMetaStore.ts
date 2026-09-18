@@ -12,9 +12,10 @@
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
 import type { Instrument } from '@/data/api';
 import type { KlinePeriod } from '@/data/api/types';
+import { symbolKey } from '@/domain/symbol';
 import { getSqlite } from './connection';
 
-/** 标的库条目（symbol 归一化为 exchange.code） */
+/** 标的库条目（symbol 归一化为 CODE.EXCHANGE） */
 export interface TickerEntry {
   symbol: string;
   name: string;
@@ -29,7 +30,7 @@ export interface SyncStateEntry {
   lastSyncMs: number;
 }
 
-/** 复权因子条目（与 AdjustmentFactorInput 兼容，symbol 归一化为 exchange.code） */
+/** 复权因子条目（与 AdjustmentFactorInput 兼容，symbol 归一化为 CODE.EXCHANGE） */
 export interface AdjustmentFactorEntry {
   symbol: string;
   exDateMs: number;
@@ -76,7 +77,7 @@ export class MarketMetaStore {
   /** 全量替换标的库（增量同步底座更新） */
   async replaceTickers(list: Instrument[]): Promise<number> {
     const entries: TickerEntry[] = list.map((it) => ({
-      symbol: `${it.symbol.exchange}.${it.symbol.code}`,
+      symbol: symbolKey(it.symbol),
       name: it.name ?? '',
       exchange: it.symbol.exchange,
       assetType: it.assetType ?? '',

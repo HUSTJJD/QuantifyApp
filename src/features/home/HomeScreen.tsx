@@ -60,7 +60,11 @@ export function HomeScreen({
   const [focusTab, setFocusTab] = useState(DEFAULT_PREFS.ashareFocusTab);
   const [fundsCollapsed, setFundsCollapsed] = useState(DEFAULT_PREFS.homeFundsCollapsed);
 
-  const boardQuotes = useQuotes(ALL_BOARD_SYMBOLS, 'stock', focused);
+  const {
+    data: boardData,
+    loading: boardLoading,
+    reload: reloadBoardQuotes,
+  } = useQuotes(ALL_BOARD_SYMBOLS, 'stock', focused);
 
   useEffect(() => {
     getAppPrefs()
@@ -78,9 +82,9 @@ export function HomeScreen({
 
   const quoteMap = useMemo(() => {
     const m = new Map<string, Quote>();
-    (boardQuotes.data ?? []).forEach((q) => m.set(fullCodeOf(q.symbol), q));
+    (boardData ?? []).forEach((q) => m.set(fullCodeOf(q.symbol), q));
     return m;
-  }, [boardQuotes.data]);
+  }, [boardData]);
 
   const focusQuote = quoteMap.get(focusKey) ?? null;
 
@@ -92,11 +96,11 @@ export function HomeScreen({
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      boardQuotes.reload();
+      reloadBoardQuotes?.();
     } finally {
       setRefreshing(false);
     }
-  }, [boardQuotes]);
+  }, [reloadBoardQuotes]);
 
   const styles = makeStyles(colors);
 
@@ -129,8 +133,8 @@ export function HomeScreen({
       </View>
 
       <GlobalTickerStrip
-        quotes={boardQuotes.data}
-        loading={boardQuotes.loading}
+        quotes={boardData}
+        loading={boardLoading}
         selectedFullCode={focusKey}
         onSelect={onSelectFocus}
       />
@@ -138,8 +142,8 @@ export function HomeScreen({
       <SessionClock />
 
       <ChinaBoard
-        quotes={boardQuotes.data}
-        loading={boardQuotes.loading}
+        quotes={boardData}
+        loading={boardLoading}
         focusSymbol={focusSymbol}
         focusQuote={focusQuote}
         selectedFullCode={focusKey}

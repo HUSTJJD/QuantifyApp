@@ -5,8 +5,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Quote, Symbol } from '@/data/api';
 import { SimAccountRepo } from '@/simulation';
-import { summarize, symbolKey, type PortfolioSummary } from '@/simulation';
+import { summarize, type PortfolioSummary } from '@/simulation';
 import type { SimAccount, Side, OrderType, SimPosition, Order, Trade, SubmitResult } from '@/simulation';
+import { symbolKey } from '@/domain/symbol';
+
+export { symbolKey };
 
 export function useSimAccount(quotes?: Quote[] | null): {
   account: SimAccount | null;
@@ -62,5 +65,3 @@ export function useSimAccount(quotes?: Quote[] | null): {
 
   return { account, summary, refresh, buy, sell, reset, positions, orders, trades };
 }
-
-export { symbolKey };

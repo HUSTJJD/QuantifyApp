@@ -3,7 +3,7 @@ import type { TradeSignal } from '@/domain';
 
 const base: TradeSignal = {
   symbol: { code: '600519', exchange: 'SH' },
-  symbolKey: 'SH.600519',
+  symbolKey: '600519.SH',
   side: 'buy',
   strength: 2,
   profileId: 'sp_1',
@@ -33,7 +33,7 @@ describe('signal alerts', () => {
   });
 
   it('signalToAlertEvent uses profile id as rule', () => {
-    const e = signalToAlertEvent(base, 1, { heldQtyByKey: new Map([['SH.600519', 0]]) });
+    const e = signalToAlertEvent(base, 1, { heldQtyByKey: new Map([['600519.SH', 0]]) });
     expect(e?.ruleId).toBe('signal_sp_1');
   });
 });

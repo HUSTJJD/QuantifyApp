@@ -23,6 +23,7 @@ import type {
   DataSourceMethod,
   MethodArgs,
 } from './methods';
+import type { SymbolCodec } from './codec';
 
 // 方法签名契约统一从 methods.ts 派生，此处 re-export 保持既有 import 路径可用
 export type {
@@ -90,6 +91,12 @@ export interface MarketDataSource extends DataSourceCoreMethods, Partial<DataSou
   readonly id: string;
   /** 数据源可读名称，用于 UI 展示 */
   readonly label: string;
+
+  /**
+   * 符号编解码器：App 符号 ↔ 本源线格式的唯一转换入口。
+   * supports/路由可用 codec.covers 做标的级裁剪；出站入站禁止源内私有转换。
+   */
+  readonly codec: SymbolCodec;
 
   /**
    * 能力自声明：本源原生支持的方法白名单（方法级裁剪）。

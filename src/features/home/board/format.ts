@@ -2,7 +2,7 @@
  * 看板共享格式化与指数常量。
  */
 import type { Quote, Symbol } from '@/data/api';
-import { toFullCode } from '@/domain';
+import { symbolKey } from '@/domain';
 
 /** 涨跌幅文本：始终带符号，负号用 ASCII 便于 tabular 对齐 */
 export function fmtPct(pct: number | null | undefined, digits = 2): string {
@@ -46,7 +46,7 @@ export function fmtYi(v: number | null | undefined): string {
 }
 
 export function quoteKey(q: Quote): string {
-  return toFullCode(q.symbol);
+  return symbolKey(q.symbol);
 }
 
 /** A 股大盘指数（ChinaBoard 主网格） */
@@ -81,7 +81,7 @@ export const ALL_BOARD_SYMBOLS: Symbol[] = (() => {
   const seen = new Set<string>();
   const out: Symbol[] = [];
   for (const s of [...GLOBAL_SYMBOLS, ...CN_BOARD_INDICES]) {
-    const k = toFullCode(s);
+    const k = symbolKey(s);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(s);
@@ -91,7 +91,7 @@ export const ALL_BOARD_SYMBOLS: Symbol[] = (() => {
 })();
 
 export function fullCodeOf(symbol: Symbol): string {
-  return toFullCode(symbol);
+  return symbolKey(symbol);
 }
 
 /** 按 code.exchange 去重，保留首次出现（异动/热股/资金流列表可能重复同一标的） */

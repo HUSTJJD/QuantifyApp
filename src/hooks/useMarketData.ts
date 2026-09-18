@@ -100,7 +100,8 @@ export function useQuotes(
     };
   }, [key, tick, kind, active]);
 
-  return { ...state, reload: useCallback(() => setTick((t) => t + 1), []) };
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+  return { data: state.data, loading: state.loading, error: state.error, reload };
 }
 
 export function useKline(params: KlineParams): AsyncState<Candle[]> & {

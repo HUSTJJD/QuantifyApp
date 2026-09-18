@@ -12,9 +12,11 @@ import { BaseMarketDataSource } from './BaseMarketDataSource';
 import { DataSourceError } from '../MarketDataSource';
 import { register } from '../DataSourceRegistry';
 import type { DataSourceMethod, MethodArgs } from '../MarketDataSource';
+import type { SymbolCodec } from '../codec';
 import type { Candle, Instrument, KlineParams, KlinePeriod, Quote, SearchParams, Symbol } from '../types';
 import { DUKASCOPY_INDEXES, findDukascopyInstrument } from './dukascopy/instruments';
 import { fetchDayCandles, fetchMinuteCandles } from './dukascopy/client';
+import { dukascopyCodec } from './codecs/dukascopyCodec';
 
 const SOURCE_ID = 'dukascopy';
 
@@ -31,6 +33,8 @@ function mapPeriod(period: KlinePeriod | undefined): 'day' | 'minute' {
 export class DukascopySource extends BaseMarketDataSource {
   readonly id = SOURCE_ID;
   readonly label = 'dukascopy(jetta.dukascopy.com)';
+  /** 全球指数白名单 instrument-id codec */
+  readonly codec: SymbolCodec = dukascopyCodec;
 
   readonly capabilities: ReadonlySet<DataSourceMethod> = new Set([
     'getQuotes',
@@ -52,11 +56,11 @@ export class DukascopySource extends BaseMarketDataSource {
     if (method === 'getQuotes') {
       const raw = a[0];
       const list = Array.isArray(raw) ? (raw as Symbol[]) : raw ? [raw as Symbol] : [];
-      return list.some((s) => s?.code && findDukascopyInstrument(s.code) != null);
+      return list.some((s) => s?.code && this.codec.covers(s));
     }
     if (method === 'getKline') {
       const p = a[0] as { symbol?: Symbol } | undefined;
-      return p?.symbol?.code ? findDukascopyInstrument(p.symbol.code) != null : false;
+      return p?.symbol ? this.codec.covers(p.symbol) : false;
     }
     return false;
   }

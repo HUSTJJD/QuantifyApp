@@ -11,6 +11,7 @@ import { database } from '@/data/db';
 import { MarketMetaStore } from '@/data/db/MarketMetaStore';
 import { macd, sma, rsi } from '@/quant/indicators';
 import { closes } from '@/quant/indicators';
+import { parseSymbolKey } from '@/domain/symbol';
 import type { Candle, Symbol } from '@/data/api';
 
 export interface ScanCriteria {
@@ -193,7 +194,7 @@ export async function scanMarket(
 
   for (const t of tickers) {
     progress.current = t.symbol;
-    const symbol: Symbol = { code: t.symbol.split('.')[1] ?? t.symbol, exchange: (t.exchange as Symbol['exchange']) ?? 'SH' };
+    const symbol: Symbol = parseSymbolKey(t.symbol);
     try {
       const candles = await db.getCandles(symbol, 'day');
       if (candles && candles.length > 0) {

@@ -14,7 +14,7 @@
 import type { DB, Scalar } from '@op-engineering/op-sqlite';
 import type { Quote, Symbol } from '@/data/api';
 import { getSqlite } from './connection';
-import { toFullCode } from '@/domain/symbol';
+import { symbolKey } from '@/domain/symbol';
 
 function n(v: unknown): number | null {
   if (v == null || v === '') return null;
@@ -343,7 +343,7 @@ export class DomainCacheStore {
     const expiresAt = now + ttlMs;
     const db = await this.db();
     for (const q of quotes) {
-      const key = toFullCode(q.symbol);
+      const key = symbolKey(q.symbol);
       const row: QuoteSnapshotRow = {
         symbolKey: key,
         code: q.symbol.code,
@@ -391,7 +391,7 @@ export class DomainCacheStore {
     if (symbols.length === 0) return out;
     const db = await this.db();
     for (const sym of symbols) {
-      const key = toFullCode(sym);
+      const key = symbolKey(sym);
       let row: QuoteSnapshotRow | null = null;
       if (!db) {
         const r = mem.quote.get(key);

@@ -4,13 +4,13 @@
 import type { Quote, Symbol } from '@/data/api';
 import type { SimAccount, SimPosition, PortfolioSummary } from './types';
 import { round2 } from './engine';
+import { symbolKey } from '@/domain/symbol';
 
 /** 行情快照：symbolKey -> 现价 */
 export type QuoteMap = Map<string, number>;
 
-export function symbolKey(symbol: Symbol): string {
-  return `${symbol.code}.${symbol.exchange}`;
-}
+/** 规范键：domain.symbolKey（CODE.EXCHANGE） */
+export { symbolKey };
 
 function quoteOf(map: QuoteMap | Quote[], symbol: Symbol): number | null {
   if (Array.isArray(map)) {

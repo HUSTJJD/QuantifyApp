@@ -8,6 +8,7 @@ import type { ChartMarket, ChartPeriod, ChartAdjust, KlineDataProvider, AutoRefr
 import { isTimelinePeriod } from '@/components/charts/core/types';
 import { createDefaultKlineProvider, chartMarketOf, loadEarlierKline } from '@/components/charts/core/dataProvider';
 import { isMarketTradingTime } from '@/components/charts/core/marketSessions';
+import { symbolKey } from '@/domain/symbol';
 
 const DEFAULT_DEBOUNCE_MS = 120;
 const DEFAULT_TTL_MS = 30_000;
@@ -22,7 +23,7 @@ const cache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<Candle[]>>();
 
 function cacheKey(symbol: Symbol, market: ChartMarket, period: ChartPeriod, adjust: ChartAdjust): string {
-  return `${symbol.exchange}.${symbol.code}|${market}|${period}|${adjust}`;
+  return `${symbolKey(symbol)}|${market}|${period}|${adjust}`;
 }
 
 function timeOf(c: Candle): number {

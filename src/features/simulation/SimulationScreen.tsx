@@ -10,6 +10,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -18,7 +19,6 @@ import { spacing, fontSize, radius } from '@/theme';
 import { useQuotes } from '@/hooks/useMarketData';
 import { useSimAccount, symbolKey } from '@/hooks/useSimAccount';
 import { calcFee, DEFAULT_INIT_CASH, round2 } from '@/simulation';
-import { toFullCode } from '@/domain';
 import type { Trade, Order, SimPosition } from '@/simulation';
 import { PaperBadge } from './PaperBadge';
 import { NavVsBenchmark } from '@/features/asset/NavVsBenchmark';
@@ -85,7 +85,16 @@ export function SimulationScreen(): React.JSX.Element {
   return (
     <ScrollView
       style={[styles.root, { backgroundColor: colors.background }]}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }]}
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingTop: insets.top + spacing.md,
+          paddingBottom:
+            (insets.bottom || 0) + Platform.select({ ios: 56, android: 60, default: 56 }) + spacing.md,
+        },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      alwaysBounceVertical
     >
       <PaperBadge />
       {/* 资产总览 */}
@@ -186,10 +195,10 @@ function PositionsTab({
         const pct = cost > 0 ? round2((pnl / cost) * 100) : 0;
         const up = pnl >= 0;
         return (
-          <View key={toFullCode(p.symbol)} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View key={symbolKey(p.symbol)} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.itemTop}>
               <Text style={[styles.code, { color: colors.text }]}>
-                {p.symbol.name ?? toFullCode(p.symbol)}
+                {p.symbol.name ?? symbolKey(p.symbol)}
               </Text>
               <Text style={[styles.pnl, { color: up ? colors.up : colors.down }]}>
                 {up ? '+' : ''}
@@ -218,7 +227,7 @@ function OrdersTab({ orders, colors }: { orders: Order[]; colors: ReturnType<typ
       {orders.map((o) => (
         <View key={o.id} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.itemTop}>
-            <Text style={[styles.code, { color: colors.text }]}>{toFullCode(o.symbol)}</Text>
+            <Text style={[styles.code, { color: colors.text }]}>{symbolKey(o.symbol)}</Text>
             <Text style={[styles.tag, { color: o.side === 'buy' ? colors.up : colors.down }]}>
               {SIDE_TEXT[o.side]}
             </Text>
@@ -269,7 +278,7 @@ function TradesTab({ trades, colors }: { trades: Trade[]; colors: ReturnType<typ
                         backgroundColor: t.side === 'buy' ? colors.up : colors.down,
                       }}
                     />
-                    <Text style={[styles.code, { color: colors.text }]}>{toFullCode(t.symbol)}</Text>
+                    <Text style={[styles.code, { color: colors.text }]}>{symbolKey(t.symbol)}</Text>
                   </View>
                   <Text style={[styles.tag, { color: t.side === 'buy' ? colors.up : colors.down }]}>
                     {time} · {SIDE_TEXT[t.side]} {t.price.toFixed(2)} × {t.quantity}

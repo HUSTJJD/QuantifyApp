@@ -2,7 +2,10 @@
  * 纯领域类型：信号、告警、扫描套餐。
  * 供 quant / features / simulation 共享，禁止在此 import UI 或存储。
  */
-import type { Symbol } from '@/data/api';
+import type { AppSymbol } from './symbol';
+
+/** 应用内统一标的（历史名 Symbol） */
+export type Symbol = AppSymbol;
 
 /* ------------------------------- 信号 ------------------------------- */
 

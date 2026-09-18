@@ -14,14 +14,6 @@ export function chartMarketOf(symbol: Symbol): ChartMarket {
   return 'A';
 }
 
-/** stock-sdk 简易代码：A 股 sh600519 / 港 00700 / 美 AAPL */
-export function toSdkCode(symbol: Symbol): string {
-  if (symbol.exchange === 'HK') return symbol.code;
-  if (symbol.exchange === 'US') return symbol.code;
-  const p = symbol.exchange === 'SZ' ? 'sz' : symbol.exchange === 'BJ' ? 'bj' : 'sh';
-  return `${p}${symbol.code}`;
-}
-
 const DEFAULT_LIMIT = 180;
 
 /**

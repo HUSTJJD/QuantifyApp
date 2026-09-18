@@ -1,8 +1,8 @@
 /**
  * 本地 SQLite 库 Schema：集中建表 DDL。
  *
- * 无历史库、无迁移：每次启动幂等执行 CREATE TABLE IF NOT EXISTS。
- * 表结构变更直接改 DDL，开发期可删库重建。
+ * **无迁移、无兼容层**：结构变更时 +SCHEMA_VERSION，连接层检测版本不一致后
+ * 直接删库重建（db.delete()），再按当前 DDL 幂等建表。数据不迁移。
  */
 import type { DB } from '@op-engineering/op-sqlite';
 
@@ -11,6 +11,12 @@ export const SQLITE_DB_NAME = 'quantify.db';
 
 /** 库文件位置（op-sqlite 'default' = 应用沙盒内） */
 export const SQLITE_DB_LOCATION = 'default';
+
+/**
+ * 结构版本号。DDL 变更时 +1；连接层发现库内版本 ≠ 此值即删库重建。
+ * v4 = 规范符号 CODE.EXCHANGE + 档案无 template_id + 当前 DDL 基线（强制清一次旧数据）。
+ */
+export const SCHEMA_VERSION = 4;
 
 /** 建表语句（按依赖顺序，全部幂等；meta 必须第一） */
 export const DDL_STATEMENTS: readonly string[] = [
@@ -1099,133 +1105,8 @@ export const DDL_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_backtest_cache_created ON backtest_cache(created_at DESC)`,
 ];
 
-/**
- * 幂等建库建表。无历史库、无版本迁移：每次启动执行 CREATE TABLE IF NOT EXISTS。
- *
- * 额外做「缺列修复」：旧版本建过同名表但列不全时，CREATE IF NOT EXISTS 不会补列，
- * 后续 INSERT/SELECT name 等列会报 no such column。这里用 PRAGMA table_info 检查，
- * 缺列则 ALTER TABLE ADD COLUMN（开发期语义：保数据、补结构）。
- */
-const COLUMN_REPAIRS: Array<{ table: string; columns: Array<{ name: string; ddl: string }> }> = [
-  {
-    table: 'tickers',
-    columns: [
-      { name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" },
-      { name: 'assetType', ddl: "TEXT NOT NULL DEFAULT ''" },
-    ],
-  },
-  {
-    table: 'watchlist',
-    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
-  },
-  {
-    table: 'watchlist_group',
-    columns: [
-      { name: 'kind', ddl: "TEXT NOT NULL DEFAULT 'static'" },
-      { name: 'rule', ddl: 'TEXT' },
-    ],
-  },
-  {
-    table: 'watchlist_group_item',
-    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
-  },
-  {
-    table: 'holding',
-    columns: [
-      { name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" },
-      { name: 'shares', ddl: 'REAL NOT NULL DEFAULT 0' },
-      { name: 'cost_price', ddl: 'REAL NOT NULL DEFAULT 0' },
-    ],
-  },
-  {
-    table: 'scan_hit',
-    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
-  },
-  {
-    table: 'stock_info',
-    columns: [
-      { name: 'name', ddl: 'TEXT' },
-      { name: 'industry', ddl: 'TEXT' },
-    ],
-  },
-  {
-    table: 'index_catalog',
-    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
-  },
-  {
-    table: 'index_constituent',
-    columns: [{ name: 'name', ddl: "TEXT NOT NULL DEFAULT ''" }],
-  },
-];
-
-async function repairMissingColumns(db: DB): Promise<void> {
-  for (const { table, columns } of COLUMN_REPAIRS) {
-    let info;
-    try {
-      info = await db.execute(`PRAGMA table_info(${table})`);
-    } catch {
-      continue; // 表不存在等异常跳过，由后续查询自然暴露
-    }
-    const have = new Set(
-      ((info.rows ?? []) as Array<Record<string, unknown>>).map((r) => String(r.name ?? '')),
-    );
-    if (have.size === 0) continue; // 表不存在
-    for (const col of columns) {
-      if (have.has(col.name)) continue;
-      try {
-        await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.ddl}`);
-      } catch {
-        // 并发/只读失败不阻断启动
-      }
-    }
-  }
-}
-
-/**
- * Schema 版本号。结构变更时 +1，并在 MIGRATIONS 追加一步。
- * 基线 v1 = 当前全量 DDL + COLUMN_REPAIRS（老库靠 CREATE IF NOT EXISTS + 补列收敛）。
- */
-export const SCHEMA_VERSION = 2;
-
-/**
- * 有序迁移：仅在 meta.schema_version < 目标版本时执行。
- * 每步应幂等；开发期仍可删库重建。
- */
-const MIGRATIONS: Array<{ version: number; run: (db: DB) => Promise<void> }> = [
-  {
-    version: 2,
-    run: async (db) => {
-      // 档案模型去掉 template_id 列：重建表，params JSON 已含 legs
-      await db.execute('DROP TABLE IF EXISTS strategy_profile_migration_tmp');
-      await db.execute(
-        `CREATE TABLE strategy_profile_migration_tmp (
-  id          TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  note        TEXT NOT NULL DEFAULT '',
-  enabled     INTEGER NOT NULL DEFAULT 1,
-  auto_trade  INTEGER NOT NULL DEFAULT 0,
-  params      TEXT NOT NULL DEFAULT '{}',
-  selection   TEXT NOT NULL DEFAULT '{}',
-  exit_rules  TEXT NOT NULL DEFAULT '{}',
-  trade_rules TEXT NOT NULL DEFAULT '{}',
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  PRIMARY KEY (id)
-)`,
-      );
-      await db.execute(
-        `INSERT INTO strategy_profile_migration_tmp
-         (id, name, note, enabled, auto_trade, params, selection, exit_rules, trade_rules, created_at, updated_at)
-         SELECT id, name, note, enabled, auto_trade, params, selection, exit_rules, trade_rules, created_at, updated_at
-         FROM strategy_profile`,
-      );
-      await db.execute('DROP TABLE strategy_profile');
-      await db.execute('ALTER TABLE strategy_profile_migration_tmp RENAME TO strategy_profile');
-    },
-  },
-];
-
-async function getSchemaVersion(db: DB): Promise<number> {
+/** 读库内 schema_version；无 meta 表或未打版本 → 0 */
+export async function readSchemaVersion(db: DB): Promise<number> {
   try {
     const res = await db.execute(`SELECT value FROM meta WHERE key = 'schema_version'`);
     const row = (res.rows ?? [])[0] as { value?: string } | undefined;
@@ -1236,31 +1117,21 @@ async function getSchemaVersion(db: DB): Promise<number> {
   }
 }
 
-async function setSchemaVersion(db: DB, version: number): Promise<void> {
-  await db.execute(
-    `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [String(version)],
-  );
+/** 版本不一致 → 连接层应删库重建（不做数据迁移） */
+export function needsDatabaseReset(storedVersion: number): boolean {
+  return storedVersion !== SCHEMA_VERSION;
 }
 
+/** 按当前 DDL 建表并打上 SCHEMA_VERSION。调用方须已保证库是干净/同版本的。 */
 export async function applySchema(db: DB): Promise<void> {
   await db.transaction(async (tx) => {
     for (const ddl of DDL_STATEMENTS) {
       await tx.execute(ddl);
     }
   });
-  await repairMissingColumns(db);
-
-  const from = await getSchemaVersion(db);
-  if (from < SCHEMA_VERSION) {
-    for (const m of MIGRATIONS) {
-      if (m.version <= from) continue;
-      await m.run(db);
-    }
-    await setSchemaVersion(db, SCHEMA_VERSION);
-  } else if (from === 0) {
-    // 全新库或未打过版本号：直接标记当前版本
-    await setSchemaVersion(db, SCHEMA_VERSION);
-  }
+  await db.execute(
+    `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [String(SCHEMA_VERSION)],
+  );
 }
